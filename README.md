@@ -6,20 +6,16 @@ Omni-Bench는 omni-modal model을 평가하기 위한 all-in-one evaluation pipe
 
 ## Update
 
-- Qwen3-Omni, Nemotron-3-Nano-Omni 모델 config 추가
-- AV-SpeakerBench, WorldSense, Video-MME, OmniVideoBench, OmniDCBench benchmark config 및 adapter 추가
-- dense audio-visual captioning 평가를 위한 OmniDCBench 추가
-- benchmark official repository를 git submodule로 등록
-- 모델별 standalone vLLM serving script 추가
+- Initial commit
 
 ## 문서
 
-- [평가 계획](Docs/plan.md)
-- [AV-SpeakerBench](Docs/av_speakerbench.md)
-- [WorldSense](Docs/worldsense.md)
-- [Video-MME](Docs/videomme.md)
-- [OmniVideoBench](Docs/omnivideobench.md)
-- [OmniDCBench](Docs/omnidcbench.md)
+- [평가 계획](docs/plan.md)
+- [AV-SpeakerBench](docs/av_speakerbench.md)
+- [WorldSense](docs/worldsense.md)
+- [Video-MME](docs/videomme.md)
+- [OmniVideoBench](docs/omnivideobench.md)
+- [OmniDCBench](docs/omnidcbench.md)
 
 ## 프로젝트 구성
 
