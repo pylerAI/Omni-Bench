@@ -1,0 +1,28 @@
+[project]
+name = "omni-bench"
+version = "0.1.0"
+description = "Unified vLLM-based benchmark runner for omni-modal models."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=2.19.0",
+    "numpy>=1.24.0",
+    "openai>=1.40.0",
+    "opencv-python-headless>=4.8.0",
+    "pandas>=2.0.0",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0.0",
+    "requests>=2.31.0",
+    "tqdm>=4.66.0",
+    "vllm[audio]",
+]
+
+[project.scripts]
+omni-bench = "omni_bench.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true

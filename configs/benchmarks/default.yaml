@@ -1,0 +1,34 @@
+benchmarks:
+  - name: av_speakerbench
+    data_path: /gpfs/public/datasets/AV-SpeakerBench/
+    split: test
+    mode: av
+    max_tokens: 8192
+    temperature: 0
+
+  - name: omnivideobench
+    annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
+    video_dir: /gpfs/public/datasets/OmniVideoBench
+    max_tokens: 8192
+    temperature: 0
+    num_frames: 120
+
+  - name: videomme
+    annotation_file: /gpfs/public/datasets/Video-MME/output_test_template.json
+    video_dir: /gpfs/public/datasets/Video-MME/videos
+    max_tokens: 8192
+    temperature: 0
+    use_subtitles: false
+
+  - name: mlvu
+    annotation_file: /gpfs/public/datasets/MLVU/upload_json
+    video_dir: /gpfs/public/datasets/MLVU
+    max_tokens: 8192
+    temperature: 0
+
+  - name: worldsense
+    data_path: /gpfs/public/datasets/WorldSense
+    annotation_file: /gpfs/public/datasets/WorldSense/worldsense_qa.json
+    video_dir: /gpfs/public/datasets/WorldSense/videos
+    max_tokens: 8192
+    temperature: 0

@@ -1,0 +1,21 @@
+global:
+  result_dir: ../../results
+  request_timeout_s: 900
+
+models:
+  - name: qwen3-omni
+    served_model_name: Qwen3-Omni-30B-A3B-Instruct
+    weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3-Omni-30B-A3B-Instruct/
+    base_url: http://127.0.0.1:8000/v1
+    vllm:
+      host: 127.0.0.1
+      port: 8000
+      tensor_parallel_size: 1
+      data_parallel_size: auto
+      gpu_memory_utilization: 0.9
+      extra_args:
+        - --trust-remote-code
+        - --moe-backend
+        - triton
+        - --allowed-local-media-path
+        - /gpfs/public/datasets

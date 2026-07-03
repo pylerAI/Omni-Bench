@@ -1,0 +1,15 @@
+[submodule "submodules/WorldSense"]
+	path = submodules/WorldSense
+	url = https://github.com/JaaackHongggg/WorldSense
+[submodule "submodules/Video-MME"]
+	path = submodules/Video-MME
+	url = https://github.com/MME-Benchmarks/Video-MME
+[submodule "submodules/OmniVideoBench"]
+	path = submodules/OmniVideoBench
+	url = https://github.com/NJU-LINK/OmniVideoBench
+[submodule "submodules/AV-SpeakerBench"]
+	path = submodules/AV-SpeakerBench
+	url = https://github.com/plnguyen2908/AV-SpeakerBench
+[submodule "submodules/MLVU"]
+	path = submodules/MLVU
+	url = https://github.com/JUNJIE99/MLVU
