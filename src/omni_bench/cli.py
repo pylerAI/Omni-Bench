@@ -69,6 +69,7 @@ def run(args: argparse.Namespace) -> None:
 
     ensure_dir(cfg.result_dir)
     write_json(cfg.result_dir / "run_summary.json", run_summary)
+    write_overall_reports(cfg.result_dir, run_summary)
 
 
 def serve(args: argparse.Namespace) -> None:
@@ -99,6 +100,74 @@ def _filter_by_name(items: Iterable[ModelConfig] | Iterable[BenchmarkConfig], na
     if missing:
         raise ValueError(f"Unknown names in config: {sorted(missing)}")
     return selected
+
+
+def write_overall_reports(result_dir, run_summary: dict[str, dict[str, object]]) -> None:
+    rows = build_overall_rows(run_summary)
+    write_json(result_dir / "overall_report.json", rows)
+    (result_dir / "overall_report.md").write_text(format_markdown_table(rows), encoding="utf-8")
+
+
+def build_overall_rows(run_summary: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+    rows = []
+    for model_name, benchmark_results in run_summary.items():
+        row: dict[str, object] = {"model": model_name}
+        for benchmark_name, summary in benchmark_results.items():
+            if not isinstance(summary, dict):
+                continue
+            for metric_name, value in representative_metrics(benchmark_name, summary).items():
+                row[f"{benchmark_name}.{metric_name}"] = value
+        rows.append(row)
+    return rows
+
+
+def representative_metrics(benchmark_name: str, summary: dict[str, object]) -> dict[str, object]:
+    if benchmark_name in {"av_speakerbench", "worldsense", "omnivideobench"}:
+        return {"accuracy": summary.get("accuracy")}
+    if benchmark_name == "videomme":
+        throughput = summary.get("throughput")
+        throughput = throughput if isinstance(throughput, dict) else {}
+        return {
+            "official_accuracy": summary.get("accuracy"),
+            "avg_latency_s": throughput.get("avg_latency_s"),
+            "p95_latency_s": throughput.get("p95_latency_s"),
+            "samples_per_sec": throughput.get("samples_per_sec"),
+            "total_tokens_per_sec": throughput.get("total_tokens_per_sec"),
+        }
+    if benchmark_name == "omnidcbench":
+        metrics = summary.get("metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        return {
+            "f1": metrics.get("f1"),
+            "miou": metrics.get("miou"),
+            "soda_m": metrics.get("soda_m"),
+        }
+    return {"accuracy": summary.get("accuracy")}
+
+
+def format_markdown_table(rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return "| model |\n| --- |\n"
+    columns = ["model"]
+    for row in rows:
+        for key in row:
+            if key not in columns:
+                columns.append(key)
+    lines = [
+        "| " + " | ".join(columns) + " |",
+        "| " + " | ".join("---" for _ in columns) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(format_cell(row.get(column)) for column in columns) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def format_cell(value: object) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from omni_bench.adapters.base import BenchmarkAdapter
 
 ADAPTER_NAMES = (
     "av_speakerbench",
-    "mlvu",
+    "omnidcbench",
     "omnivideobench",
     "videomme",
     "worldsense",
@@ -17,10 +17,10 @@ def get_adapter(name: str) -> BenchmarkAdapter:
         from omni_bench.adapters.av_speakerbench import AVSpeakerBenchAdapter
 
         return AVSpeakerBenchAdapter()
-    if name == "mlvu":
-        from omni_bench.adapters.mlvu import MLVUAdapter
+    if name == "omnidcbench":
+        from omni_bench.adapters.omnidcbench import OmniDCBenchAdapter
 
-        return MLVUAdapter()
+        return OmniDCBenchAdapter()
     if name == "omnivideobench":
         from omni_bench.adapters.omnivideobench import OmniVideoBenchAdapter
 

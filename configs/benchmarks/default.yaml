@@ -23,11 +23,15 @@ benchmarks:
     temperature: 0
     use_subtitles: false
 
-  - name: mlvu
-    annotation_file: /gpfs/public/datasets/MLVU/upload_json
-    video_dir: /gpfs/public/datasets/MLVU
+  - name: omnidcbench
+    data_path: /gpfs/public/datasets/OmniDCBench
+    annotation_file: /gpfs/public/datasets/OmniDCBench/ours_gt_file.json
+    video_dir: /gpfs/public/datasets/OmniDCBench/Video
     max_tokens: 8192
     temperature: 0
+    max_frames: 160
+    fps: 2.0
+    max_pixels: 297920
 
   - name: worldsense
     data_path: /gpfs/public/datasets/WorldSense
@@ -35,3 +39,4 @@ benchmarks:
     video_dir: /gpfs/public/datasets/WorldSense/videos
     max_tokens: 8192
     temperature: 0
+    num_frames: 8
