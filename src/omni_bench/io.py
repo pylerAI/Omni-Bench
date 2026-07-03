@@ -20,7 +20,7 @@ def write_json(path: str | Path, data: Any) -> None:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(to_jsonable(data), f, indent=2, ensure_ascii=False)
 
 
 def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -28,7 +28,24 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
         for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            f.write(json.dumps(to_jsonable(row), ensure_ascii=False) + "\n")
+
+
+def to_jsonable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(item) for item in value]
+    if hasattr(value, "tolist"):
+        return to_jsonable(value.tolist())
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if value is not None and value.__class__.__module__.startswith("pandas"):
+        return None
+    return value
 
 
 def accuracy(correct: int, total: int) -> float:
