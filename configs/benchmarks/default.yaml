@@ -12,6 +12,9 @@ benchmarks:
     max_tokens: 8192
     temperature: 0
     num_frames: 120
+    max_workers: 2
+    preprocess_workers: 4
+    preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
 
   - name: videomme
     annotation_file: /gpfs/public/datasets/Video-MME/output_test_template.json

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 import string
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -34,49 +37,48 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         items = self._flatten(load_annotation(Path(benchmark.annotation_file)), video_dir)
         items = apply_limit(items, benchmark.limit)
-        records: list[dict[str, Any]] = []
         num_frames = int(benchmark.extra.get("num_frames", 120))
+        max_workers = int(benchmark.extra.get("max_workers", 2))
+        preprocess_workers = int(benchmark.extra.get("preprocess_workers", 4))
+        cache_dir = Path(
+            benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
+        ).expanduser()
 
-        for item in tqdm(items, desc=f"{model.name}/OmniVideoBench"):
-            prompt = self._prompt(item["question"], item["options"])
-            sampled_video = sample_video_as_jpeg_sequence(Path(item["video_path"]), num_frames)
-            completion = client.complete(
-                prompt,
-                video_url=sampled_video["data_url"],
-                audio_path=item["video_path"],
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-                system_prompt=benchmark.extra.get("system_prompt"),
-                extra_body={
-                    "media_io_kwargs": {
-                        "video": {
-                            "num_frames": sampled_video["num_frames"],
-                            "fps": sampled_video["sample_fps"],
-                            "total_num_frames": sampled_video["total_frames"],
-                            "frames_indices": sampled_video["frame_indices"],
-                            "duration": sampled_video["duration_s"],
-                        }
-                    },
-                    "mm_processor_kwargs": {"use_audio_in_video": False},
-                },
-            )
-            response = completion.text
-            parsed = extract_model_answer(response, prompt)
-            records.append(
-                {
-                    **item,
-                    "prompt": prompt,
-                    "response": response,
-                    "parsed_answer": parsed,
-                    "is_correct": clean_text(parsed) == clean_text(item["answer"]),
-                    "latency_s": completion.latency_s,
-                    "sampled_num_frames": sampled_video["num_frames"],
-                }
-            )
+        cache_by_video = preprocess_videos(
+            [Path(item["video_path"]) for item in items],
+            cache_dir=cache_dir,
+            num_frames=num_frames,
+            max_workers=preprocess_workers,
+        )
 
-        summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
-        write_json(output_dir / "records.json", records)
-        write_jsonl(output_dir / "records.jsonl", records)
+        records: list[dict[str, Any] | None] = [None] * len(items)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    run_single_item,
+                    item=item,
+                    benchmark=benchmark,
+                    client=client,
+                    cache_path=cache_by_video[Path(item["video_path"])],
+                    prompt=self._prompt(item["question"], item["options"]),
+                ): idx
+                for idx, item in enumerate(items)
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"{model.name}/OmniVideoBench",
+            ):
+                records[futures[future]] = future.result()
+
+        final_records = [record for record in records if record is not None]
+        summary = summarize_accuracy(final_records, ("video_type", "question_type", "audio_type"))
+        summary["max_workers"] = max_workers
+        summary["preprocess_workers"] = preprocess_workers
+        summary["preprocess_cache_dir"] = str(cache_dir)
+        write_json(output_dir / "records.json", final_records)
+        write_jsonl(output_dir / "records.jsonl", final_records)
         write_json(output_dir / "summary.json", summary)
         return summary
 
@@ -149,6 +151,139 @@ def load_annotation(path: Path) -> list[dict[str, Any]]:
     if path.suffix == ".parquet":
         return pd.read_parquet(path).to_dict("records")
     return read_json(path)
+
+
+def run_single_item(
+    *,
+    item: dict[str, Any],
+    benchmark: BenchmarkConfig,
+    client: VllmChatClient,
+    cache_path: Path,
+    prompt: str,
+) -> dict[str, Any]:
+    sampled_video = read_json(cache_path)
+    audio_path = sampled_video.get("audio_path")
+    try:
+        completion = client.complete(
+            prompt,
+            video_url=sampled_video["data_url"],
+            audio_path=audio_path if audio_path else None,
+            max_tokens=benchmark.max_tokens,
+            temperature=benchmark.temperature,
+            system_prompt=benchmark.extra.get("system_prompt"),
+            extra_body={
+                "media_io_kwargs": {
+                    "video": {
+                        "num_frames": sampled_video["num_frames"],
+                        "fps": sampled_video["sample_fps"],
+                        "total_num_frames": sampled_video["total_frames"],
+                        "frames_indices": sampled_video["frame_indices"],
+                        "duration": sampled_video["duration_s"],
+                    }
+                },
+                "mm_processor_kwargs": {"use_audio_in_video": False},
+            },
+        )
+        response = completion.text
+        parsed = extract_model_answer(response, prompt)
+        return {
+            **item,
+            "prompt": prompt,
+            "response": response,
+            "parsed_answer": parsed,
+            "is_correct": clean_text(parsed) == clean_text(item["answer"]),
+            "latency_s": completion.latency_s,
+            "prompt_tokens": completion.prompt_tokens,
+            "completion_tokens": completion.completion_tokens,
+            "total_tokens": completion.total_tokens,
+            "sampled_num_frames": sampled_video["num_frames"],
+            "audio_path": audio_path,
+            "preprocess_cache_path": str(cache_path),
+        }
+    except Exception as exc:
+        return {
+            **item,
+            "prompt": prompt,
+            "response": "",
+            "parsed_answer": "",
+            "is_correct": False,
+            "latency_s": None,
+            "sampled_num_frames": sampled_video.get("num_frames"),
+            "audio_path": audio_path,
+            "preprocess_cache_path": str(cache_path),
+            "error": repr(exc),
+        }
+
+
+def preprocess_videos(
+    video_paths: list[Path],
+    *,
+    cache_dir: Path,
+    num_frames: int,
+    max_workers: int,
+) -> dict[Path, Path]:
+    unique_paths = list(dict.fromkeys(video_paths))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_paths = {path: sampled_video_cache_path(path, cache_dir, num_frames) for path in unique_paths}
+    missing = [path for path in unique_paths if not cache_paths[path].exists()]
+    if missing:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    write_sampled_video_cache,
+                    video_path=path,
+                    cache_path=cache_paths[path],
+                    num_frames=num_frames,
+                ): path
+                for path in missing
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Preprocessing OmniVideoBench videos",
+            ):
+                future.result()
+    return cache_paths
+
+
+def sampled_video_cache_path(video_path: Path, cache_dir: Path, num_frames: int) -> Path:
+    return cache_dir / f"{video_path.stem}_{num_frames}frames_v2.json"
+
+
+def write_sampled_video_cache(video_path: Path, cache_path: Path, num_frames: int) -> None:
+    data = sample_video_as_jpeg_sequence(video_path, num_frames)
+    audio_path = extract_audio_to_wav(video_path, cache_path.with_suffix(".wav"))
+    data["audio_path"] = str(audio_path) if audio_path else None
+    tmp_path = cache_path.with_suffix(".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(data, f)
+    tmp_path.replace(cache_path)
+
+
+def extract_audio_to_wav(video_path: Path, output_path: Path) -> Path | None:
+    if output_path.exists():
+        return output_path
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        str(output_path),
+    ]
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    return output_path
 
 
 def sample_video_as_jpeg_sequence(video_path: Path, num_frames: int) -> dict[str, Any]:
