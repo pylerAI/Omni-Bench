@@ -37,6 +37,7 @@ class VllmChatClient:
         self,
         prompt: str,
         *,
+        image_urls: list[str] | None = None,
         video_path: str | Path | None = None,
         video_url: str | None = None,
         audio_path: str | Path | None = None,
@@ -46,6 +47,8 @@ class VllmChatClient:
         extra_body: dict[str, Any] | None = None,
     ) -> ChatCompletionResult:
         content: list[dict[str, Any]] = []
+        for image_url in image_urls or []:
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
         if video_path or video_url:
             content.append(
                 {

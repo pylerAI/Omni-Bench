@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import base64
 import math
 import re
+import subprocess
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+import cv2
+from PIL import Image
 from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
@@ -81,6 +86,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
         data_root = Path(benchmark.data_path or ".").expanduser()
         annotation_file = Path(benchmark.annotation_file or data_root / "worldsense_qa.json").expanduser()
         video_dir = Path(benchmark.video_dir or data_root / "videos").expanduser()
+        cache_dir = Path(benchmark.extra.get("preprocess_cache_dir", data_root / "preprocess_cache")).expanduser()
 
         rows = apply_limit(self._flatten(read_worldsense_json(annotation_file), video_dir), benchmark.limit)
         records: list[dict[str, Any]] = []
@@ -103,16 +109,14 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 )
                 continue
 
+            media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
             completion = client.complete(
                 prompt,
-                video_path=video_path,
+                image_urls=media["image_urls"],
+                audio_path=media["audio_path"],
                 max_tokens=benchmark.max_tokens,
                 temperature=benchmark.temperature,
                 system_prompt=SYS,
-                extra_body={
-                    "media_io_kwargs": {"video": {"num_frames": num_frames}},
-                    "mm_processor_kwargs": {"use_audio_in_video": True},
-                },
             )
             response = completion.text
             parsed = extract_characters_regex(response)
@@ -128,6 +132,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     "prompt_tokens": completion.prompt_tokens,
                     "completion_tokens": completion.completion_tokens,
                     "total_tokens": completion.total_tokens,
+                    "preprocess_cache_path": str(media["cache_path"]),
                 }
             )
 
@@ -231,6 +236,87 @@ def resolve_video_path(video_dir: Path, video_id: str) -> Path:
         if candidate.exists():
             return candidate
     return video_dir / f"{video_id}.mp4"
+
+
+def prepare_worldsense_media(video_path: Path, cache_dir: Path, num_frames: int) -> dict[str, Any]:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{video_path.stem}_{num_frames}frames_v1.json"
+    audio_path = cache_dir / f"{video_path.stem}.wav"
+    if not cache_path.exists():
+        data = sample_video_frames_as_images(video_path, num_frames)
+        tmp_path = cache_path.with_suffix(".tmp")
+        import json
+
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(data, f)
+        tmp_path.replace(cache_path)
+    if not audio_path.exists():
+        extract_audio_to_wav(video_path, audio_path)
+
+    import json
+
+    with cache_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    data["audio_path"] = str(audio_path)
+    data["cache_path"] = str(cache_path)
+    return data
+
+
+def sample_video_frames_as_images(video_path: Path, num_frames: int) -> dict[str, Any]:
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {video_path}")
+    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames <= 0:
+        capture.release()
+        raise ValueError(f"Video has no frames: {video_path}")
+    sample_count = min(num_frames, total_frames)
+    indices = [0] if sample_count == 1 else [
+        round(i * (total_frames - 1) / (sample_count - 1))
+        for i in range(sample_count)
+    ]
+
+    image_urls = []
+    for index in indices:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+        ok, frame = capture.read()
+        if not ok:
+            continue
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        image = Image.fromarray(frame)
+        with BytesIO() as buffer:
+            image.save(buffer, format="JPEG", quality=90)
+            image_urls.append("data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii"))
+    capture.release()
+    if not image_urls:
+        raise ValueError(f"Failed to sample frames from video: {video_path}")
+    return {
+        "image_urls": image_urls,
+        "num_frames": len(image_urls),
+        "frame_indices": indices[: len(image_urls)],
+        "total_frames": total_frames,
+    }
+
+
+def extract_audio_to_wav(video_path: Path, output_path: Path) -> None:
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        str(output_path),
+    ]
+    subprocess.run(command, check=True)
 
 
 def get_dimension_rating(records: list[dict[str, Any]]) -> dict[str, Any]:

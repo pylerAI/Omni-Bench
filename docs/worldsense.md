@@ -34,53 +34,9 @@ bash scripts/extract_worldsense_videos.sh
 
 WorldSense official repository는 VLMEvalKit 기반 재현을 안내합니다. local adapter는 VLMEvalKit의 `WorldSense` 구현을 참고해 prompt, exact matching parser, dimension aggregation을 맞춥니다.
 
-기본 설정은 VLMEvalKit의 `WorldSense_8frame_audio` variant에 맞춥니다. 응답은 VLMEvalKit의 `extract_characters_regex` 방식으로 A-D letter를 추출하고, duration/domain/sub-category/task-domain/task-type/audio-class별 rating을 `vlmeval_rating.json`에 저장합니다.
+기본 설정은 VLMEvalKit의 `WorldSense_8frame_audio` variant에 맞춥니다. video를 그대로 넣지 않고 8개 frame을 image input으로 추출하며, audio는 WAV로 분리해 전달합니다. 응답은 VLMEvalKit의 `extract_characters_regex` 방식으로 A-D letter를 추출하고, duration/domain/sub-category/task-domain/task-type/audio-class별 rating을 `vlmeval_rating.json`에 저장합니다.
 
-구현 위치:
-
-```106:115:src/omni_bench/adapters/worldsense.py
-            completion = client.complete(
-                prompt,
-                video_path=video_path,
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-                system_prompt=SYS,
-                extra_body={
-                    "media_io_kwargs": {"video": {"num_frames": num_frames}},
-                    "mm_processor_kwargs": {"use_audio_in_video": True},
-                },
-            )
-```
-
-```117:143:src/omni_bench/adapters/worldsense.py
-            response = completion.text
-            parsed = extract_characters_regex(response)
-            records.append(
-                {
-                    **row,
-                    "prompt": prompt,
-                    "response": response,
-                    "parsed_answer": parsed,
-                    "is_correct": parsed == row["answer"],
-                    "score": int(parsed == row["answer"]) if parsed else -1,
-                    "latency_s": completion.latency_s,
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                    "total_tokens": completion.total_tokens,
-                }
-            )
-
-        summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
-        summary["missing_videos"] = sum(1 for row in records if row.get("error"))
-        summary["vlmeval_rating_file"] = str(output_dir / "vlmeval_rating.json")
-        summary["note"] = (
-            "WorldSense evaluation mirrors VLMEvalKit exact matching and dimension aggregation. "
-            "Judge-based fallback extraction is not used."
-        )
-        write_json(output_dir / "records.json", records)
-        write_jsonl(output_dir / "records.jsonl", records)
-        write_json(output_dir / "vlmeval_rating.json", get_dimension_rating(records))
-```
+참조한 official 구현은 VLMEvalKit의 [`WorldSense_8frame_audio` dataset config](https://github.com/open-compass/VLMEvalKit/blob/0bfa830fa42fd1d5ac485bbb0bbc78e16c079e18/vlmeval/dataset/video_dataset_config.py#L204-L216), [`WorldSense.build_prompt`](https://github.com/open-compass/VLMEvalKit/blob/0bfa830fa42fd1d5ac485bbb0bbc78e16c079e18/vlmeval/dataset/worldsense.py#L243-L292), [`WorldSense.evaluate`](https://github.com/open-compass/VLMEvalKit/blob/0bfa830fa42fd1d5ac485bbb0bbc78e16c079e18/vlmeval/dataset/worldsense.py#L296-L349), [`extract_characters_regex`](https://github.com/open-compass/VLMEvalKit/blob/0bfa830fa42fd1d5ac485bbb0bbc78e16c079e18/vlmeval/dataset/utils/worldsense.py#L218-L240), [`get_dimension_rating`](https://github.com/open-compass/VLMEvalKit/blob/0bfa830fa42fd1d5ac485bbb0bbc78e16c079e18/vlmeval/dataset/utils/worldsense.py#L142-L206)입니다.
 
 ## Metric
 
