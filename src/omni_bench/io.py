@@ -34,6 +34,8 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
 def to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, set):
+        return [to_jsonable(item) for item in sorted(value, key=str)]
     if isinstance(value, (list, tuple)):
         return [to_jsonable(item) for item in value]
     if hasattr(value, "tolist"):

@@ -29,7 +29,7 @@ OmniVideoBench는 audio-visual reasoning, modality complementarity, logical cons
 
 official Qwen3-Omni evaluation code는 visual frame을 샘플링하고 audio track을 별도로 추출합니다. adapter는 이 구조에 맞춰 다음을 수행합니다.
 
-- visual 입력은 최대 `120`개 frame으로 균일 샘플링합니다.
+- visual 입력은 official Qwen3-Omni eval 설정에 맞춰 `fps=2.0`, 최대 `120`개 frame으로 샘플링합니다.
 - audio 입력은 원본 full audio track을 WAV로 추출해 별도 audio input으로 전달합니다.
 - 응답은 official-style `extract_model_answer` / `clean_text` 흐름으로 정리해 gold answer와 비교합니다.
 

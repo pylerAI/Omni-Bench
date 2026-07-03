@@ -37,7 +37,8 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         items = self._flatten(load_annotation(Path(benchmark.annotation_file)), video_dir)
         items = apply_limit(items, benchmark.limit)
-        num_frames = int(benchmark.extra.get("num_frames", 120))
+        max_frames = int(benchmark.extra.get("max_frames", benchmark.extra.get("num_frames", 120)))
+        fps = float(benchmark.extra.get("fps", 2.0))
         max_workers = int(benchmark.extra.get("max_workers", 2))
         preprocess_workers = int(benchmark.extra.get("preprocess_workers", 4))
         cache_dir = Path(
@@ -47,7 +48,8 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         cache_by_video = preprocess_videos(
             [Path(item["video_path"]) for item in items],
             cache_dir=cache_dir,
-            num_frames=num_frames,
+            max_frames=max_frames,
+            fps=fps,
             max_workers=preprocess_workers,
         )
 
@@ -129,7 +131,9 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
             "You are given a video. Based on the content of the video, answer the following question:\n\n"
             f"Question:\n{question}\n\n"
             f"Options:\n{chr(10).join(options)}\n\n"
-            "Answer with the option's letter directly (e.g., A, B, C, or D)."
+            "Answer with the option's letter directly(e.g., A, B, C, or D)."
+            "If your access to the video content is limited, at least one option that is more likely than the others must be chosen."
+            "Mustn't give any other reason for can not choose!"
         )
 
 
@@ -168,9 +172,14 @@ def run_single_item(
             prompt,
             video_url=sampled_video["data_url"],
             audio_path=audio_path if audio_path else None,
-            max_tokens=benchmark.max_tokens,
-            temperature=benchmark.temperature,
-            system_prompt=benchmark.extra.get("system_prompt"),
+            max_tokens=int(benchmark.extra.get("max_tokens", 1024)),
+            temperature=float(benchmark.extra.get("temperature", 0.7)),
+            top_p=benchmark.extra.get("top_p"),
+            do_sample=bool(benchmark.extra.get("do_sample", True)),
+            system_prompt=benchmark.extra.get(
+                "system_prompt",
+                "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
+            ),
             extra_body={
                 "media_io_kwargs": {
                     "video": {
@@ -219,12 +228,13 @@ def preprocess_videos(
     video_paths: list[Path],
     *,
     cache_dir: Path,
-    num_frames: int,
+    max_frames: int,
+    fps: float,
     max_workers: int,
 ) -> dict[Path, Path]:
     unique_paths = list(dict.fromkeys(video_paths))
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_paths = {path: sampled_video_cache_path(path, cache_dir, num_frames) for path in unique_paths}
+    cache_paths = {path: sampled_video_cache_path(path, cache_dir, max_frames, fps) for path in unique_paths}
     missing = [path for path in unique_paths if not cache_paths[path].exists()]
     if missing:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -233,7 +243,8 @@ def preprocess_videos(
                     write_sampled_video_cache,
                     video_path=path,
                     cache_path=cache_paths[path],
-                    num_frames=num_frames,
+                    max_frames=max_frames,
+                    fps=fps,
                 ): path
                 for path in missing
             }
@@ -246,12 +257,13 @@ def preprocess_videos(
     return cache_paths
 
 
-def sampled_video_cache_path(video_path: Path, cache_dir: Path, num_frames: int) -> Path:
-    return cache_dir / f"{video_path.stem}_{num_frames}frames_v2.json"
+def sampled_video_cache_path(video_path: Path, cache_dir: Path, max_frames: int, fps: float) -> Path:
+    fps_tag = str(fps).replace(".", "p")
+    return cache_dir / f"{video_path.stem}_{fps_tag}fps_max{max_frames}_v3.json"
 
 
-def write_sampled_video_cache(video_path: Path, cache_path: Path, num_frames: int) -> None:
-    data = sample_video_as_jpeg_sequence(video_path, num_frames)
+def write_sampled_video_cache(video_path: Path, cache_path: Path, max_frames: int, fps: float) -> None:
+    data = sample_video_as_jpeg_sequence(video_path, max_frames=max_frames, fps=fps)
     audio_path = extract_audio_to_wav(video_path, cache_path.with_suffix(".wav"))
     data["audio_path"] = str(audio_path) if audio_path else None
     tmp_path = cache_path.with_suffix(".tmp")
@@ -286,19 +298,20 @@ def extract_audio_to_wav(video_path: Path, output_path: Path) -> Path | None:
     return output_path
 
 
-def sample_video_as_jpeg_sequence(video_path: Path, num_frames: int) -> dict[str, Any]:
+def sample_video_as_jpeg_sequence(video_path: Path, max_frames: int, fps: float) -> dict[str, Any]:
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise ValueError(f"Failed to open video: {video_path}")
 
     total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
-    duration_s = total_frames / fps if fps > 0 else 0.0
+    source_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    duration_s = total_frames / source_fps if source_fps > 0 else 0.0
     if total_frames <= 0:
         capture.release()
         raise ValueError(f"Video has no frames: {video_path}")
 
-    sample_count = min(num_frames, total_frames)
+    target_frames = int(duration_s * fps) if duration_s > 0 else max_frames
+    sample_count = min(max(target_frames, 1), max_frames, total_frames)
     if sample_count == 1:
         indices = [0]
     else:
@@ -331,6 +344,9 @@ def sample_video_as_jpeg_sequence(video_path: Path, num_frames: int) -> dict[str
         "total_frames": total_frames,
         "sample_fps": sample_fps,
         "duration_s": duration_s,
+        "requested_fps": fps,
+        "source_fps": source_fps,
+        "max_frames": max_frames,
     }
 
 

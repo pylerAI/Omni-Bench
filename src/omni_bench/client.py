@@ -43,6 +43,8 @@ class VllmChatClient:
         audio_path: str | Path | None = None,
         max_tokens: int = 8192,
         temperature: float = 0.0,
+        top_p: float | None = None,
+        do_sample: bool | None = None,
         system_prompt: str | None = None,
         extra_body: dict[str, Any] | None = None,
     ) -> ChatCompletionResult:
@@ -66,12 +68,17 @@ class VllmChatClient:
         messages.append({"role": "user", "content": content})
 
         started = time.perf_counter()
+        body = dict(extra_body or {})
+        if top_p is not None:
+            body["top_p"] = top_p
+        if do_sample is not None:
+            body["do_sample"] = do_sample
         response = self.client.chat.completions.create(
             model=self.model.api_model_name,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            extra_body=extra_body,
+            extra_body=body or None,
         )
         latency_s = time.perf_counter() - started
         text = response.choices[0].message.content or ""
