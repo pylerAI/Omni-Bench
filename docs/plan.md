@@ -71,15 +71,32 @@ benchmark별 추가 파일:
 
 `overall_report`는 benchmark별 대표 수치를 중심으로 구성합니다. 값이 아직 계산되지 않은 metric은 `-`로 표시합니다.
 
-| Model | AV-SpeakerBench Acc | WorldSense Acc | Video-MME Acc | Video-MME Avg Latency | Video-MME P95 Latency | Video-MME Samples/sec | Video-MME Tokens/sec | OmniVideoBench Acc | OmniDCBench F1 | OmniDCBench mIoU | OmniDCBench SODA_M |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Qwen3-Omni | - | - | - | - | - | - | - | - | - | - | - |
-| Nemotron-3-Nano-Omni | - | - | - | - | - | - | - | - | - | - | - |
+Benchmark 대표 metric:
+
+| Model | AV-SpeakerBench Acc | WorldSense Acc | Video-MME Acc | OmniVideoBench Acc | OmniDCBench F1 | OmniDCBench mIoU | OmniDCBench SODA_M |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Qwen3-Omni | - | - | - | - | - | - | - |
+| Nemotron-3-Nano-Omni | - | - | - | - | - | - | - |
+
+Throughput metric은 현재 Video-MME에서만 측정합니다.
+
+| Model | Avg Latency | P50 Latency | P95 Latency | Samples/sec | Tokens/sec |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3-Omni | - | - | - | - | - |
+| Nemotron-3-Nano-Omni | - | - | - | - | - |
 
 대표 metric 정의:
 
-- AV-SpeakerBench: overall accuracy
-- WorldSense: VLMEvalKit-style overall accuracy
-- Video-MME: official evaluator accuracy와 throughput summary
-- OmniVideoBench: overall accuracy
-- OmniDCBench: F1, mIoU, SODA_M
+- AV-SpeakerBench: 전체 3,212개 multiple-choice question 기준 정답률
+- WorldSense: 전체 duration bucket을 합친 뒤 domain별 score를 통합해 계산한 overall accuracy. 세부 분석에서는 domain별 accuracy 평균도 함께 확인
+- Video-MME: official evaluator가 계산한 전체 multiple-choice QA 정답률
+- OmniVideoBench: 전체 QA pair 기준 정답률. 세부 분석에서는 audio type별 accuracy와 question type별 accuracy를 함께 확인
+- OmniDCBench:
+  - F1: 예측 timestamp/caption segment와 GT segment matching의 F1
+  - mIoU: 예측 timestamp 구간과 GT timestamp 구간의 평균 temporal overlap
+  - SODA_M: temporal alignment와 caption content matching을 결합한 dense caption score
+- Throughput:
+  - Avg Latency: sample별 wall-clock latency 평균
+  - P50/P95 Latency: latency median 및 tail latency
+  - Samples/sec: 초당 처리 sample 수
+  - Tokens/sec: prompt + completion 기준 total token throughput

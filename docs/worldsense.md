@@ -7,7 +7,7 @@
 - Project page: [WorldSense project page](https://jaaackhongggg.github.io/WorldSense/)
 - Dataset: [honglyhly/WorldSense](https://huggingface.co/datasets/honglyhly/WorldSense)
 
-![WorldSense task category results](../submodules/WorldSense/asset/fine_task.png)
+![WorldSense task category results](assets/worldsense_fine_task.png)
 
 ## 목적
 
@@ -22,7 +22,7 @@ WorldSense는 synchronized video와 audio 기반의 real-world omnimodal underst
 - 3,172개 multiple-choice QA pair
 - 8개 domain, 67개 subcategory, 26개 task type
 
-![WorldSense dataset distribution](../submodules/WorldSense/asset/distribution.png)
+![WorldSense dataset distribution](assets/worldsense_distribution.png)
 
 video는 zip archive 형태로 배포되므로 평가 전에 한 번 압축을 해제합니다.
 
@@ -90,7 +90,7 @@ WorldSense official repository는 VLMEvalKit 기반 재현을 안내합니다. l
 - Task-type accuracy: benchmark가 정의한 26개 task 유형별 정확도입니다. audio change, temporal localization, audio counting, spatial relation 등 어떤 reasoning operation에서 성능이 떨어지는지 확인합니다.
 - Audio-class accuracy: `Speech`, `Music`, `Event` 등 audio cue 유형별 성능을 분석할 때 사용합니다.
 
-![WorldSense audio type results](../submodules/WorldSense/asset/fine_audio.png)
+![WorldSense audio type results](assets/worldsense_fine_audio.png)
 
 ## 최종 Output Metric Table
 

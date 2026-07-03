@@ -7,7 +7,7 @@
 - Project page: [TimeChat-Captioner](https://timechat-captioner.github.io/)
 - Benchmark dataset: [yaolily/OmniDCBench](https://huggingface.co/datasets/yaolily/OmniDCBench)
 
-![TimeChat-Captioner overview](https://github.com/user-attachments/assets/4234857e-5ba6-4b6e-bbb7-eabd0eac2244)
+![TimeChat-Captioner overview](assets/timechat_captioner_overview.png)
 
 ## 목적
 

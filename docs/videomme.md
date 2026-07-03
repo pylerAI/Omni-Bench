@@ -7,7 +7,7 @@
 - Project page: [Video-MME](https://video-mme.github.io/)
 - Dataset: [lmms-lab/Video-MME](https://huggingface.co/datasets/lmms-lab/Video-MME)
 
-![Video-MME model results](../submodules/Video-MME/asset/results_of_various_models.png)
+![Video-MME model results](assets/videomme_results_of_various_models.png)
 
 ## 목적
 
@@ -21,7 +21,7 @@ Video-MME는 long-video multimodal understanding benchmark입니다. short, medi
 - 2,700개 human-annotated multiple-choice QA pair
 - short, medium, long duration group 포함
 
-![Video-MME dataset statistics](../submodules/Video-MME/asset/sta.jpg)
+![Video-MME dataset statistics](assets/videomme_statistics.jpg)
 
 ## 평가 방식
 

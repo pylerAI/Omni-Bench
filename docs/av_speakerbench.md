@@ -7,7 +7,7 @@
 - Project page: [AV-SpeakerBench project page](https://plnguyen2908.github.io/AV-SpeakerBench-project-page/)
 - Dataset: [plnguyen2908/AV-SpeakerBench](https://huggingface.co/datasets/plnguyen2908/AV-SpeakerBench)
 
-![AV-SpeakerBench question design](../submodules/AV-SpeakerBench/asset/question_design.png)
+![AV-SpeakerBench question design](assets/av_speakerbench_question_design.png)
 
 ## 목적
 
@@ -20,7 +20,7 @@ AV-SpeakerBench는 real-world video에서 speaker-centric audiovisual reasoning�
 - 3,212개 multiple-choice question
 - 주요 task: speaker detection, speaker recognition, speech recognition, speech duration/rate/intensity/pitch, visual counting, attribute recognition, activity recognition
 
-![AV-SpeakerBench dataset statistics](../submodules/AV-SpeakerBench/asset/dataset_stat.png)
+![AV-SpeakerBench dataset statistics](assets/av_speakerbench_dataset_stat.png)
 
 ## 평가 방식
 

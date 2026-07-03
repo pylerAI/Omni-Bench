@@ -7,7 +7,7 @@
 - Project page: [OmniVideoBench](https://omnivideobench.github.io/omnivideobench_home/)
 - Dataset: [NJU-LINK/OmniVideoBench](https://huggingface.co/datasets/NJU-LINK/OmniVideoBench)
 
-![OmniVideoBench examples](../submodules/OmniVideoBench/static/images/examples.png)
+![OmniVideoBench examples](assets/omnivideobench_examples.png)
 
 ## 목적
 
@@ -23,7 +23,7 @@ OmniVideoBench는 audio-visual reasoning, modality complementarity, logical cons
 - 8개 video category
 - 13개 question type
 
-![OmniVideoBench dataset statistics](../submodules/OmniVideoBench/static/images/main.png)
+![OmniVideoBench dataset statistics](assets/omnivideobench_main.png)
 
 ## 평가 방식
 
@@ -41,7 +41,7 @@ official Qwen3-Omni evaluation code는 visual frame을 샘플링하고 audio tra
 - Audio type accuracy: `Speech`, `Sound`, `Music` 등 audio cue 유형별 성능입니다. speech grounding과 non-speech sound 이해를 분리해서 분석합니다.
 - Duration accuracy: 짧은 clip과 긴 clip에서 context handling 차이를 확인할 수 있습니다.
 
-![OmniVideoBench performance overview](../submodules/OmniVideoBench/static/images/results.png)
+![OmniVideoBench performance overview](assets/omnivideobench_results.png)
 
 ## 최종 Output Metric Table
 

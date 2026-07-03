@@ -103,37 +103,35 @@ def _filter_by_name(items: Iterable[ModelConfig] | Iterable[BenchmarkConfig], na
 
 
 def write_overall_reports(result_dir, run_summary: dict[str, dict[str, object]]) -> None:
-    rows = build_overall_rows(run_summary)
-    write_json(result_dir / "overall_report.json", rows)
-    (result_dir / "overall_report.md").write_text(format_markdown_table(rows), encoding="utf-8")
+    report = build_overall_report(run_summary)
+    write_json(result_dir / "overall_report.json", report)
+    (result_dir / "overall_report.md").write_text(format_overall_markdown(report), encoding="utf-8")
 
 
-def build_overall_rows(run_summary: dict[str, dict[str, object]]) -> list[dict[str, object]]:
-    rows = []
+def build_overall_report(run_summary: dict[str, dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    metric_rows = []
+    throughput_rows = []
     for model_name, benchmark_results in run_summary.items():
-        row: dict[str, object] = {"model": model_name}
+        metric_row: dict[str, object] = {"model": model_name}
+        throughput_row: dict[str, object] = {"model": model_name}
         for benchmark_name, summary in benchmark_results.items():
             if not isinstance(summary, dict):
                 continue
             for metric_name, value in representative_metrics(benchmark_name, summary).items():
-                row[f"{benchmark_name}.{metric_name}"] = value
-        rows.append(row)
-    return rows
+                metric_row[f"{benchmark_name}.{metric_name}"] = value
+            if benchmark_name == "videomme":
+                for metric_name, value in throughput_metrics(summary).items():
+                    throughput_row[metric_name] = value
+        metric_rows.append(metric_row)
+        throughput_rows.append(throughput_row)
+    return {"metrics": metric_rows, "throughput": throughput_rows}
 
 
 def representative_metrics(benchmark_name: str, summary: dict[str, object]) -> dict[str, object]:
     if benchmark_name in {"av_speakerbench", "worldsense", "omnivideobench"}:
         return {"accuracy": summary.get("accuracy")}
     if benchmark_name == "videomme":
-        throughput = summary.get("throughput")
-        throughput = throughput if isinstance(throughput, dict) else {}
-        return {
-            "official_accuracy": summary.get("accuracy"),
-            "avg_latency_s": throughput.get("avg_latency_s"),
-            "p95_latency_s": throughput.get("p95_latency_s"),
-            "samples_per_sec": throughput.get("samples_per_sec"),
-            "total_tokens_per_sec": throughput.get("total_tokens_per_sec"),
-        }
+        return {"official_accuracy": summary.get("accuracy")}
     if benchmark_name == "omnidcbench":
         metrics = summary.get("metrics")
         metrics = metrics if isinstance(metrics, dict) else {}
@@ -143,6 +141,28 @@ def representative_metrics(benchmark_name: str, summary: dict[str, object]) -> d
             "soda_m": metrics.get("soda_m"),
         }
     return {"accuracy": summary.get("accuracy")}
+
+
+def throughput_metrics(summary: dict[str, object]) -> dict[str, object]:
+    throughput = summary.get("throughput")
+    throughput = throughput if isinstance(throughput, dict) else {}
+    return {
+        "avg_latency_s": throughput.get("avg_latency_s"),
+        "p50_latency_s": throughput.get("p50_latency_s"),
+        "p95_latency_s": throughput.get("p95_latency_s"),
+        "samples_per_sec": throughput.get("samples_per_sec"),
+        "tokens_per_sec": throughput.get("total_tokens_per_sec"),
+    }
+
+
+def format_overall_markdown(report: dict[str, list[dict[str, object]]]) -> str:
+    return (
+        "## Benchmark Metrics\n\n"
+        + format_markdown_table(report.get("metrics", []))
+        + "\n## Throughput Metrics\n\n"
+        + "현재 throughput metric은 Video-MME에서만 측정합니다.\n\n"
+        + format_markdown_table(report.get("throughput", []))
+    )
 
 
 def format_markdown_table(rows: list[dict[str, object]]) -> str:
