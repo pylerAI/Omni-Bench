@@ -8,6 +8,7 @@ from omni_bench.adapters import ADAPTER_NAMES, get_adapter
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
 from omni_bench.io import ensure_dir, write_json
+from omni_bench.report import render_report
 from omni_bench.serving import serve_model, vllm_command
 
 
@@ -70,6 +71,11 @@ def run(args: argparse.Namespace) -> None:
     ensure_dir(cfg.result_dir)
     write_json(cfg.result_dir / "run_summary.json", run_summary)
     write_overall_reports(cfg.result_dir, run_summary)
+    try:
+        report_path = render_report(cfg.result_dir)
+        print(f"HTML report: {report_path}")
+    except Exception as exc:  # report generation must never fail the run
+        print(f"Skipped HTML report: {type(exc).__name__}: {exc}")
 
 
 def serve(args: argparse.Namespace) -> None:
