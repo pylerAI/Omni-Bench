@@ -28,6 +28,25 @@ PROMPT = (
     '- "caption": a detailed audio-visual caption for that segment.\n'
     "Use enough segments to cover the full video from beginning to end."
 )
+
+
+def build_prompt(duration_sec: Any = None) -> str:
+    """PROMPT with an explicit clip-length cap to prevent runaway timestamps."""
+    try:
+        total = int(round(float(duration_sec)))
+    except (TypeError, ValueError):
+        total = 0
+    if total <= 0:
+        return PROMPT
+    cap = f"{total // 60:02d}:{total % 60:02d}"
+    return (
+        PROMPT
+        + f"\nThis clip is exactly {total} seconds long. Every timestamp must lie within "
+        f"00:00-{cap}, and no timestamp may exceed {cap}. Do not describe or invent any "
+        "segment beyond the end of the clip; stop once the clip ends."
+    )
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -73,9 +92,10 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                     "error": f"Video file not found: {video_path}",
                 }
 
+            prompt = build_prompt(row.get("duration"))
             try:
                 completion = client.complete(
-                    PROMPT,
+                    prompt,
                     video_path=video_path,
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
@@ -91,7 +111,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                     return failed_record(row, exc)
                 try:
                     completion = client.complete(
-                        PROMPT,
+                        prompt,
                         video_path=video_path,
                         max_tokens=benchmark.max_tokens,
                         temperature=benchmark.temperature,
