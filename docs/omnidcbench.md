@@ -51,7 +51,7 @@ adapter는 official `Eval` script가 기대하는 field를 유지해 `prediction
 - `prediction`
 - 모델 출력이 JSON으로 parse 가능한 경우 `prediction_json`
 
-TimeChat-Captioner 예시 설정에 맞춰 최대 `160` frame, `fps=2.0`, `max_pixels=297920`을 사용합니다. 모델 출력은 timestamp가 포함된 structured dense caption JSON string을 기대합니다. 기존 자연어 문단 prediction은 timestamp segment가 없어 F1/mIoU가 0이 되므로 재추론이 필요합니다.
+프레임 수와 해상도는 vLLM 서버의 기본 video sampling을 따릅니다. per-request `num_frames`/`fps`/`max_pixels`는 서버가 무시하기 때문이며(값을 바꿔도 prompt token이 불변임을 확인), OmniDCBench 클립은 짧아서(≤70초) 기본 sampling으로도 context window 안에 들어옵니다. `use_audio_in_video`만 요청 단위로 반영됩니다. 모델 출력은 timestamp가 포함된 structured dense caption JSON string을 기대합니다. 기존 자연어 문단 prediction은 timestamp segment가 없어 F1/mIoU가 0이 되므로 재추론이 필요합니다.
 
 ## Metric
 

@@ -35,9 +35,9 @@ benchmarks:
     video_dir: /gpfs/public/datasets/OmniDCBench/Video
     max_tokens: 16384
     temperature: 0
-    max_frames: 160
-    fps: 2.0
-    max_pixels: 297920
+    # Frame count / resolution use the vLLM server's default video sampling:
+    # per-request num_frames/fps/max_pixels are ignored by the server. Clips are
+    # short (<=70s) so the default sampling stays within the context window.
     concurrency: 8
     max_workers: 4
     enable_sodam: false

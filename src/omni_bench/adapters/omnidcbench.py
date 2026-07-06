@@ -68,9 +68,6 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or data_root / "Video").expanduser()
         rows = apply_limit(read_jsonl(Path(benchmark.annotation_file).expanduser()), benchmark.limit)
 
-        max_frames = int(benchmark.extra.get("max_frames", 160))
-        fps = float(benchmark.extra.get("fps", 2.0))
-        max_pixels = int(benchmark.extra.get("max_pixels", 297920))
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
 
         prediction_path = output_dir / "predictions.jsonl"
@@ -99,12 +96,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                     video_path=video_path,
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
-                    extra_body=omnidcbench_extra_body(
-                        max_frames=max_frames,
-                        fps=fps,
-                        max_pixels=max_pixels,
-                        use_audio_in_video=True,
-                    ),
+                    extra_body=omnidcbench_extra_body(use_audio_in_video=True),
                 )
             except Exception as exc:
                 if not should_retry_without_audio(exc):
@@ -115,12 +107,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                         video_path=video_path,
                         max_tokens=benchmark.max_tokens,
                         temperature=benchmark.temperature,
-                        extra_body=omnidcbench_extra_body(
-                            max_frames=max_frames,
-                            fps=fps,
-                            max_pixels=max_pixels,
-                            use_audio_in_video=False,
-                        ),
+                        extra_body=omnidcbench_extra_body(use_audio_in_video=False),
                     )
                     fallback_reason = f"{type(exc).__name__}: {exc}"
                 except Exception as fallback_exc:
@@ -180,28 +167,16 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         return summary
 
 
-def omnidcbench_extra_body(
-    *,
-    max_frames: int,
-    fps: float,
-    max_pixels: int,
-    use_audio_in_video: bool,
-) -> dict[str, Any]:
-    return {
-        "media_io_kwargs": {
-            "video": {
-                # vLLM's media loader uses num_frames as the cap that corresponds
-                # to the official Qwen max_frames field.
-                "num_frames": max_frames,
-                "fps": fps,
-            },
-        },
-        "mm_processor_kwargs": {
-            "use_audio_in_video": use_audio_in_video,
-            "fps": fps,
-            "max_pixels": max_pixels,
-        },
-    }
+def omnidcbench_extra_body(*, use_audio_in_video: bool) -> dict[str, Any]:
+    """Per-request body for OmniDCBench video requests.
+
+    The vLLM server honours ``use_audio_in_video`` but ignores per-request video
+    sampling kwargs (num_frames/fps/max_pixels — verified: varying them leaves the
+    prompt token count unchanged), so only the audio flag is set here. Frame count
+    and resolution fall back to the server's default video sampling, which stays
+    within the context window because OmniDCBench clips are short (<=70s).
+    """
+    return {"mm_processor_kwargs": {"use_audio_in_video": use_audio_in_video}}
 
 
 def is_completed_prediction(record: dict[str, Any]) -> bool:
