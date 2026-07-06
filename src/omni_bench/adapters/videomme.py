@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 import math
+import threading
+import time
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from math import ceil
 from pathlib import Path
@@ -37,6 +41,8 @@ class VideoMMEAdapter(BenchmarkAdapter):
 
         num_frames = int(benchmark.extra.get("max_frames", 64))
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))
+        concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
+        use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
 
         records_path = output_dir / "records.jsonl"
         records = read_jsonl_records(records_path)
@@ -46,27 +52,33 @@ class VideoMMEAdapter(BenchmarkAdapter):
             qid = str(item["question_id"])
             if qid in existing_response:
                 item["question_ref"]["response"] = existing_response[qid]
-        frame_cache: dict[str, list[str]] = {}
-        for item in tqdm(flat, desc=f"{model.name}/Video-MME"):
-            if str(item["question_id"]) in done:
-                continue
-            video_path = item["video_path"]
-            # The vLLM server ignores per-request video sampling kwargs, so sample
-            # frames client-side (uniform, resized to a per-frame pixel budget) and
-            # send them as images — the bounded, deterministic equivalent of
-            # VLMEvalKit's frame-based Video-MME setting. Frames are cached per video.
-            if video_path not in frame_cache:
-                frame_cache = {video_path: sample_video_frames(video_path, num_frames, max_pixels)}
-            prompt = self._prompt(item, use_subtitles=bool(benchmark.extra.get("use_subtitles", False)))
-            completion = client.complete(
-                prompt,
-                image_urls=frame_cache[video_path],
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-            )
-            response = completion.text
-            item["question_ref"]["response"] = response
-            record = {
+        pending = [item for item in flat if str(item["question_id"]) not in done]
+
+        # Frames are sampled client-side (the server ignores per-request video
+        # sampling kwargs) and sent as images. Requests run concurrently so the
+        # server stays busy instead of idling between serial calls; frames are
+        # cached per video (bounded LRU) so each clip is decoded once even though
+        # it backs several questions.
+        cache_lock = threading.Lock()
+        write_lock = threading.Lock()
+        frame_cache: "OrderedDict[str, list[str]]" = OrderedDict()
+
+        def frames_for(video_path: str) -> list[str]:
+            with cache_lock:
+                cached = frame_cache.get(video_path)
+                if cached is not None:
+                    frame_cache.move_to_end(video_path)
+                    return cached
+            frames = sample_video_frames(video_path, num_frames, max_pixels)
+            with cache_lock:
+                frame_cache[video_path] = frames
+                frame_cache.move_to_end(video_path)
+                while len(frame_cache) > 64:
+                    frame_cache.popitem(last=False)
+            return frames
+
+        def process_item(item: dict[str, Any]) -> dict[str, Any]:
+            base = {
                 "video_id": item["video_id"],
                 "duration": item["duration"],
                 "domain": item["domain"],
@@ -74,18 +86,46 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "question_id": item["question_id"],
                 "task_type": item["task_type"],
                 "answer": item["answer"],
-                "response": response,
+                "video_path": item["video_path"],
+            }
+            try:
+                completion = client.complete(
+                    self._prompt(item, use_subtitles=use_subtitles),
+                    image_urls=frames_for(item["video_path"]),
+                    max_tokens=benchmark.max_tokens,
+                    temperature=benchmark.temperature,
+                )
+            except Exception as exc:
+                return {**base, "response": "", "error": f"{type(exc).__name__}: {exc}",
+                        "latency_s": None, "prompt_tokens": None,
+                        "completion_tokens": None, "total_tokens": None}
+            return {
+                **base,
+                "response": completion.text,
                 "latency_s": completion.latency_s,
                 "prompt_tokens": completion.prompt_tokens,
                 "completion_tokens": completion.completion_tokens,
                 "total_tokens": completion.total_tokens,
-                "video_path": item["video_path"],
             }
-            records.append(record)
-            append_jsonl(records_path, record)
-            done.add(str(item["question_id"]))
 
-        throughput_summary = summarize_throughput(records)
+        response_by_qid: dict[str, str] = {}
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(process_item, item) for item in pending]
+            for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/Video-MME"):
+                record = future.result()
+                response_by_qid[str(record["question_id"])] = record.get("response", "")
+                with write_lock:
+                    records.append(record)
+                    append_jsonl(records_path, record)
+        wall_time_s = time.perf_counter() - started
+
+        for item in flat:
+            qid = str(item["question_id"])
+            if qid in response_by_qid:
+                item["question_ref"]["response"] = response_by_qid[qid]
+
+        throughput_summary = summarize_throughput(records, wall_time_s=wall_time_s if pending else None)
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "throughput_summary.json", throughput_summary)
@@ -249,9 +289,12 @@ def resolve_video_path(video_dir: Path, video_name: str) -> Path:
     return video_dir / f"{video_name}.mp4"
 
 
-def summarize_throughput(records: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize_throughput(records: list[dict[str, Any]], wall_time_s: float | None = None) -> dict[str, Any]:
     latencies = [float(row["latency_s"]) for row in records if row.get("latency_s") is not None]
-    total_wall_time_s = sum(latencies)
+    # Under concurrency, summed per-request latency overstates elapsed time, so
+    # rates use the measured wall-clock when available (falling back to the sum).
+    summed_latency_s = sum(latencies)
+    elapsed_s = wall_time_s if wall_time_s is not None else summed_latency_s
     unique_videos = {row.get("video_id") for row in records if row.get("video_id") is not None}
 
     prompt_tokens = sum_optional_int(row.get("prompt_tokens") for row in records)
@@ -261,18 +304,19 @@ def summarize_throughput(records: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "samples": len(records),
         "unique_videos": len(unique_videos),
-        "total_wall_time_s": round(total_wall_time_s, 6),
+        "total_wall_time_s": round(elapsed_s, 6),
+        "summed_latency_s": round(summed_latency_s, 6),
         "avg_latency_s": round(sum(latencies) / len(latencies), 6) if latencies else 0.0,
         "p50_latency_s": percentile(latencies, 50),
         "p95_latency_s": percentile(latencies, 95),
-        "samples_per_sec": safe_rate(len(records), total_wall_time_s),
-        "videos_per_hour": safe_rate(len(unique_videos), total_wall_time_s / 3600.0),
+        "samples_per_sec": safe_rate(len(records), elapsed_s),
+        "videos_per_hour": safe_rate(len(unique_videos), elapsed_s / 3600.0),
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
-        "prompt_tokens_per_sec": safe_rate(prompt_tokens, total_wall_time_s),
-        "completion_tokens_per_sec": safe_rate(completion_tokens, total_wall_time_s),
-        "total_tokens_per_sec": safe_rate(total_tokens, total_wall_time_s),
+        "prompt_tokens_per_sec": safe_rate(prompt_tokens, elapsed_s),
+        "completion_tokens_per_sec": safe_rate(completion_tokens, elapsed_s),
+        "total_tokens_per_sec": safe_rate(total_tokens, elapsed_s),
     }
 
 
