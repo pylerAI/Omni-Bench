@@ -10,7 +10,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import read_json, write_json, write_jsonl
+from omni_bench.io import append_jsonl, read_json, read_jsonl_records, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
@@ -32,8 +32,17 @@ class VideoMMEAdapter(BenchmarkAdapter):
         if benchmark.limit is not None:
             flat = flat[: benchmark.limit]
 
-        records: list[dict[str, Any]] = []
+        records_path = output_dir / "records.jsonl"
+        records = read_jsonl_records(records_path)
+        done = {str(record.get("question_id")) for record in records}
+        existing_response = {str(record.get("question_id")): record.get("response") for record in records}
+        for item in flat:
+            qid = str(item["question_id"])
+            if qid in existing_response:
+                item["question_ref"]["response"] = existing_response[qid]
         for item in tqdm(flat, desc=f"{model.name}/Video-MME"):
+            if str(item["question_id"]) in done:
+                continue
             prompt = self._prompt(item, use_subtitles=bool(benchmark.extra.get("use_subtitles", False)))
             completion = client.complete(
                 prompt,
@@ -43,28 +52,28 @@ class VideoMMEAdapter(BenchmarkAdapter):
             )
             response = completion.text
             item["question_ref"]["response"] = response
-            records.append(
-                {
-                    "video_id": item["video_id"],
-                    "duration": item["duration"],
-                    "domain": item["domain"],
-                    "sub_category": item["sub_category"],
-                    "question_id": item["question_id"],
-                    "task_type": item["task_type"],
-                    "answer": item["answer"],
-                    "response": response,
-                    "latency_s": completion.latency_s,
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                    "total_tokens": completion.total_tokens,
-                    "video_path": item["video_path"],
-                }
-            )
+            record = {
+                "video_id": item["video_id"],
+                "duration": item["duration"],
+                "domain": item["domain"],
+                "sub_category": item["sub_category"],
+                "question_id": item["question_id"],
+                "task_type": item["task_type"],
+                "answer": item["answer"],
+                "response": response,
+                "latency_s": completion.latency_s,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "total_tokens": completion.total_tokens,
+                "video_path": item["video_path"],
+            }
+            records.append(record)
+            append_jsonl(records_path, record)
+            done.add(str(item["question_id"]))
 
         throughput_summary = summarize_throughput(records)
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
-        write_jsonl(output_dir / "records.jsonl", records)
         write_json(output_dir / "throughput_summary.json", throughput_summary)
         summary = {
             "total": len(records),

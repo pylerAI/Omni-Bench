@@ -31,6 +31,31 @@ def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
             f.write(json.dumps(to_jsonable(row), ensure_ascii=False) + "\n")
 
 
+def append_jsonl(path: str | Path, row: dict[str, Any]) -> None:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(to_jsonable(row), ensure_ascii=False) + "\n")
+        f.flush()
+
+
+def read_jsonl_records(path: str | Path) -> list[dict[str, Any]]:
+    src = Path(path)
+    if not src.exists():
+        return []
+    rows = []
+    with src.open("r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def load_existing_keys(path: str | Path, key: str) -> set[str]:
+    return {str(row.get(key)) for row in read_jsonl_records(path) if row.get(key) is not None}
+
+
 def to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): to_jsonable(v) for k, v in value.items()}

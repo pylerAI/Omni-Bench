@@ -11,7 +11,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import summarize_accuracy, write_json, write_jsonl
+from omni_bench.io import append_jsonl, load_existing_keys, read_jsonl_records, summarize_accuracy, write_json
 
 
 class AVSpeakerBenchAdapter(BenchmarkAdapter):
@@ -31,9 +31,13 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
         rows = apply_limit(rows, benchmark.limit)
 
         data_root = Path(benchmark.data_path or ".").expanduser()
-        records: list[dict[str, Any]] = []
+        records_path = output_dir / "records.jsonl"
+        records = read_jsonl_records(records_path)
+        done = load_existing_keys(records_path, "question_id")
 
         for row in tqdm(rows, desc=f"{model.name}/AV-SpeakerBench"):
+            if str(row.get("question_id")) in done:
+                continue
             choices = ast.literal_eval(row["choices"]) if isinstance(row["choices"], str) else row["choices"]
             prompt = (
                 "Select the best answer to the following multiple-choice question based on the video. "
@@ -53,26 +57,26 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
             )
             response = completion.text
             parsed = extract_characters_regex(response)
-            records.append(
-                {
-                    "question_id": row.get("question_id"),
-                    "video_id": row.get("video_id"),
-                    "category": row.get("category"),
-                    "sub_category": row.get("sub_category"),
-                    "task_id": row.get("task_id"),
-                    "prompt": prompt,
-                    "answer": row.get("answer"),
-                    "response": response,
-                    "parsed_answer": parsed,
-                    "is_correct": parsed == row.get("answer"),
-                    "latency_s": completion.latency_s,
-                    "media_path": str(media_path),
-                }
-            )
+            record = {
+                "question_id": row.get("question_id"),
+                "video_id": row.get("video_id"),
+                "category": row.get("category"),
+                "sub_category": row.get("sub_category"),
+                "task_id": row.get("task_id"),
+                "prompt": prompt,
+                "answer": row.get("answer"),
+                "response": response,
+                "parsed_answer": parsed,
+                "is_correct": parsed == row.get("answer"),
+                "latency_s": completion.latency_s,
+                "media_path": str(media_path),
+            }
+            records.append(record)
+            append_jsonl(records_path, record)
+            done.add(str(record["question_id"]))
 
         summary = summarize_accuracy(records, ("category", "sub_category", "task_id"))
         write_json(output_dir / "records.json", records)
-        write_jsonl(output_dir / "records.jsonl", records)
         write_json(output_dir / "summary.json", summary)
         return summary
 

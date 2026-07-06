@@ -18,7 +18,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import read_json, summarize_accuracy, write_json, write_jsonl
+from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
@@ -45,15 +45,20 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
             benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
         ).expanduser()
 
+        records_path = output_dir / "records.jsonl"
+        existing_records = read_jsonl_records(records_path)
+        done = {str(record.get("question_id")) for record in existing_records}
+        pending_items = [item for item in items if str(item.get("question_id")) not in done]
+
         cache_by_video = preprocess_videos(
-            [Path(item["video_path"]) for item in items],
+            [Path(item["video_path"]) for item in pending_items],
             cache_dir=cache_dir,
             max_frames=max_frames,
             fps=fps,
             max_workers=preprocess_workers,
         )
 
-        records: list[dict[str, Any] | None] = [None] * len(items)
+        records: list[dict[str, Any]] = list(existing_records)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -64,23 +69,23 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
                     client=client,
                     cache_path=cache_by_video[Path(item["video_path"])],
                     prompt=self._prompt(item["question"], item["options"]),
-                ): idx
-                for idx, item in enumerate(items)
+                ): item
+                for item in pending_items
             }
             for future in tqdm(
                 as_completed(futures),
                 total=len(futures),
                 desc=f"{model.name}/OmniVideoBench",
             ):
-                records[futures[future]] = future.result()
+                record = future.result()
+                records.append(record)
+                append_jsonl(records_path, record)
 
-        final_records = [record for record in records if record is not None]
-        summary = summarize_accuracy(final_records, ("video_type", "question_type", "audio_type"))
+        summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
         summary["max_workers"] = max_workers
         summary["preprocess_workers"] = preprocess_workers
         summary["preprocess_cache_dir"] = str(cache_dir)
-        write_json(output_dir / "records.json", final_records)
-        write_jsonl(output_dir / "records.jsonl", final_records)
+        write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
 

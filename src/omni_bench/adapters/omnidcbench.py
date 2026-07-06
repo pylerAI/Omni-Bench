@@ -10,7 +10,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import write_json, write_jsonl
+from omni_bench.io import append_jsonl, read_jsonl_records, write_json, write_jsonl
 
 
 PROMPT = (
@@ -42,18 +42,27 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         fps = float(benchmark.extra.get("fps", 2.0))
         max_pixels = int(benchmark.extra.get("max_pixels", 297920))
 
-        records: list[dict[str, Any]] = []
+        prediction_path = output_dir / "predictions.jsonl"
+        records = read_jsonl_records(prediction_path)
+        done = {
+            str(record.get("clip_path"))
+            for record in records
+            if record.get("clip_path") and str(record.get("prediction", "")).strip()
+        }
         for row in tqdm(rows, desc=f"{model.name}/OmniDCBench"):
+            if str(row.get("clip_path")) in done:
+                continue
             video_path = video_dir / row["clip_path"]
             if not video_path.exists():
-                records.append(
-                    {
-                        **row,
-                        "prediction": "FAILED",
-                        "prediction_json": None,
-                        "error": f"Video file not found: {video_path}",
-                    }
-                )
+                record = {
+                    **row,
+                    "prediction": "FAILED",
+                    "prediction_json": None,
+                    "error": f"Video file not found: {video_path}",
+                }
+                records.append(record)
+                append_jsonl(prediction_path, record)
+                done.add(str(row.get("clip_path")))
                 continue
 
             completion = client.complete(
@@ -75,17 +84,18 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                 },
             )
             prediction = completion.text
-            records.append(
-                {
-                    **row,
-                    "prediction": prediction,
-                    "prediction_json": parse_prediction_json(prediction),
-                    "latency_s": completion.latency_s,
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                    "total_tokens": completion.total_tokens,
-                }
-            )
+            record = {
+                **row,
+                "prediction": prediction,
+                "prediction_json": parse_prediction_json(prediction),
+                "latency_s": completion.latency_s,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "total_tokens": completion.total_tokens,
+            }
+            records.append(record)
+            append_jsonl(prediction_path, record)
+            done.add(str(row.get("clip_path")))
 
         summary = {
             "total": len(records),
@@ -96,7 +106,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                 "Use predictions.jsonl with the official eval scripts for SODA_M/F1."
             ),
         }
-        write_jsonl(output_dir / "predictions.jsonl", records)
+        write_jsonl(prediction_path, records)
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary

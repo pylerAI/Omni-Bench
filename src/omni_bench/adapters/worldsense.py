@@ -15,7 +15,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import summarize_accuracy, write_json, write_jsonl
+from omni_bench.io import append_jsonl, read_jsonl_records, summarize_accuracy, write_json
 
 
 SYS = (
@@ -89,24 +89,30 @@ class WorldSenseAdapter(BenchmarkAdapter):
         cache_dir = Path(benchmark.extra.get("preprocess_cache_dir", data_root / "preprocess_cache")).expanduser()
 
         rows = apply_limit(self._flatten(read_worldsense_json(annotation_file), video_dir), benchmark.limit)
-        records: list[dict[str, Any]] = []
+        records_path = output_dir / "records.jsonl"
+        records = read_jsonl_records(records_path)
+        done = {worldsense_key(record) for record in records}
         num_frames = int(benchmark.extra.get("num_frames", 8))
 
         for row in tqdm(rows, desc=f"{model.name}/WorldSense"):
+            key = worldsense_key(row)
+            if key in done:
+                continue
             prompt = build_prompt(row["question"], row["candidates"])
             video_path = row["video_path"]
             if not Path(video_path).exists():
-                records.append(
-                    {
-                        **row,
-                        "prompt": prompt,
-                        "response": "",
-                        "parsed_answer": "",
-                        "is_correct": False,
-                        "latency_s": None,
-                        "error": f"Video file not found: {video_path}",
-                    }
-                )
+                record = {
+                    **row,
+                    "prompt": prompt,
+                    "response": "",
+                    "parsed_answer": "",
+                    "is_correct": False,
+                    "latency_s": None,
+                    "error": f"Video file not found: {video_path}",
+                }
+                records.append(record)
+                append_jsonl(records_path, record)
+                done.add(key)
                 continue
 
             media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
@@ -120,21 +126,22 @@ class WorldSenseAdapter(BenchmarkAdapter):
             )
             response = completion.text
             parsed = extract_characters_regex(response)
-            records.append(
-                {
-                    **row,
-                    "prompt": prompt,
-                    "response": response,
-                    "parsed_answer": parsed,
-                    "is_correct": parsed == row["answer"],
-                    "score": int(parsed == row["answer"]) if parsed else -1,
-                    "latency_s": completion.latency_s,
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                    "total_tokens": completion.total_tokens,
-                    "preprocess_cache_path": str(media["cache_path"]),
-                }
-            )
+            record = {
+                **row,
+                "prompt": prompt,
+                "response": response,
+                "parsed_answer": parsed,
+                "is_correct": parsed == row["answer"],
+                "score": int(parsed == row["answer"]) if parsed else -1,
+                "latency_s": completion.latency_s,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "total_tokens": completion.total_tokens,
+                "preprocess_cache_path": str(media["cache_path"]),
+            }
+            records.append(record)
+            append_jsonl(records_path, record)
+            done.add(key)
 
         summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
         summary["missing_videos"] = sum(1 for row in records if row.get("error"))
@@ -144,7 +151,6 @@ class WorldSenseAdapter(BenchmarkAdapter):
             "Judge-based fallback extraction is not used."
         )
         write_json(output_dir / "records.json", records)
-        write_jsonl(output_dir / "records.jsonl", records)
         write_json(output_dir / "vlmeval_rating.json", get_dimension_rating(records))
         write_json(output_dir / "summary.json", summary)
         return summary
@@ -370,3 +376,7 @@ def format_mean(scores: list[float]) -> str:
     if math.isnan(mean):
         return "nan"
     return f"{mean:.3f}"
+
+
+def worldsense_key(row: dict[str, Any]) -> str:
+    return f"{row.get('video_id')}::{row.get('task_id')}"
