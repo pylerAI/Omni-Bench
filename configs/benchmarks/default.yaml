@@ -29,11 +29,14 @@ benchmarks:
     data_path: /gpfs/public/datasets/OmniDCBench
     annotation_file: /gpfs/public/datasets/OmniDCBench/ours_gt_file.json
     video_dir: /gpfs/public/datasets/OmniDCBench/Video
-    max_tokens: 8192
+    max_tokens: 16384
     temperature: 0
     max_frames: 160
     fps: 2.0
     max_pixels: 297920
+    concurrency: 8
+    max_workers: 4
+    enable_sodam: false
 
   - name: worldsense
     data_path: /gpfs/public/datasets/WorldSense

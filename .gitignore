@@ -9,3 +9,5 @@ results/
 
 .env
 .env.*
+
+CLAUDE.md

@@ -28,10 +28,21 @@ bash scripts/extract_omnidcbench_videos.sh
 
 ## 평가 방식
 
-adapter는 TimeChat-Captioner의 dense caption prompt를 사용합니다.
+official TimeChat-Captioner inference code에서 확인되는 prompt는 아래 dense caption prompt입니다.
 
 ```text
 Thoroughly describe everything in the video, capturing every detail. Include as much information from the audio as possible, and ensure that the descriptions of both audio and video are well-coordinated.
+```
+
+official code 안에서는 별도의 timestamp JSON 출력 지시 prompt를 찾을 수 없습니다. 대신 `Infer/readme.md`와 evaluator는 모델 출력이 이미 timestamp가 포함된 JSON list라고 가정합니다. 이는 TimeChat-Captioner가 SFT/GRPO를 통해 위 prompt에 대해 structured dense caption을 생성하도록 학습된 전제입니다.
+
+일반 omni model은 동일 prompt만으로 자연어 문단을 출력할 수 있으므로, local adapter는 official evaluator가 읽을 수 있게 structured timestamp 출력을 명시합니다.
+
+```text
+Return only a valid JSON array. Do not include markdown fences or any extra text. Each array item must describe one temporal segment and include:
+- "timestamp": a string in "MM:SS-MM:SS" format, relative to the start of this clip.
+- "caption": a detailed audio-visual caption for that segment.
+Use enough segments to cover the full video from beginning to end.
 ```
 
 adapter는 official `Eval` script가 기대하는 field를 유지해 `predictions.jsonl`을 저장합니다.
@@ -40,7 +51,7 @@ adapter는 official `Eval` script가 기대하는 field를 유지해 `prediction
 - `prediction`
 - 모델 출력이 JSON으로 parse 가능한 경우 `prediction_json`
 
-TimeChat-Captioner 예시 설정에 맞춰 최대 `160` frame, `fps=2.0`, `max_pixels=297920`을 사용합니다. 모델 출력은 timestamp가 포함된 structured dense caption JSON string을 기대합니다.
+TimeChat-Captioner 예시 설정에 맞춰 최대 `160` frame, `fps=2.0`, `max_pixels=297920`을 사용합니다. 모델 출력은 timestamp가 포함된 structured dense caption JSON string을 기대합니다. 기존 자연어 문단 prediction은 timestamp segment가 없어 F1/mIoU가 0이 되므로 재추론이 필요합니다.
 
 ## Metric
 
@@ -49,7 +60,7 @@ TimeChat-Captioner는 `submodules/TimeChat-Captioner/Eval` 아래 metric script�
 - `eval_sodam.py`
 - `eval_time.py`
 
-local adapter는 위 evaluator에 넣을 prediction file을 생성합니다. judge credential과 evaluation runtime이 준비되면 metric 자동 실행을 추가할 수 있습니다.
+local adapter는 `eval_time.py`를 실행해 metric을 `summary.json`에 기록합니다. 기본 설정은 Gemini judge 없이 temporal metric(F1/mIoU)만 계산하는 `enable_sodam=false`입니다. Gemini judge 기반 SODA_M까지 계산하려면 Gemini credential(`metric_credentials`)을 설정하고 `enable_sodam=true`로 실행합니다.
 
 | Metric | 평가 목적 |
 | --- | --- |
