@@ -19,11 +19,15 @@ benchmarks:
     preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
 
   - name: videomme
-    annotation_file: /gpfs/public/datasets/Video-MME/output_test_template.json
-    video_dir: /gpfs/public/datasets/Video-MME/videos
+    annotation_file: /gpfs/public/datasets/Video-MME/videomme/test-00000-of-00001.parquet
+    video_dir: /gpfs/public/datasets/Video-MME/data
     max_tokens: 8192
     temperature: 0
     use_subtitles: false
+    # Frames are sampled client-side (the server ignores per-request video
+    # sampling kwargs) and sent as images, like VLMEvalKit's Video-MME_64frame.
+    max_frames: 64
+    max_pixels: 602112   # 768*28*28 per-frame area cap (~192 tokens/frame)
 
   - name: omnidcbench
     data_path: /gpfs/public/datasets/OmniDCBench
