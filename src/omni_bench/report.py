@@ -277,6 +277,41 @@ def stat_tiles(models: list[str], benches_present: list[str],
             f"<tr><th></th>{units}</tr></thead><tbody>{''.join(body)}</tbody></table></div></section>")
 
 
+def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
+                       benches_present: list[str]) -> str:
+    """Table of per-(model, benchmark) throughput for summaries that measured it."""
+    def num(value: Any, digits: int = 2) -> str:
+        return "—" if value is None else f"{value:,.{digits}f}"
+
+    rows = []
+    for m in models:
+        for b in benches_present:
+            tp = (data.get(m, {}).get(b) or {}).get("throughput")
+            if not isinstance(tp, dict):
+                continue
+            rows.append(
+                f"<tr><td class='cat'>{esc(m)}</td>"
+                f"<td class='cat'>{esc(BENCH_LABEL.get(b, b))}</td>"
+                f"<td class='num'>{tp.get('samples', '—'):,}</td>"
+                f"<td class='num'>{num(tp.get('samples_per_sec'))}</td>"
+                f"<td class='num'>{num(tp.get('total_tokens_per_sec'), 1)}</td>"
+                f"<td class='num'>{num(tp.get('avg_latency_s'))}</td>"
+                f"<td class='num'>{num(tp.get('p95_latency_s'))}</td>"
+                f"<td class='num'>{num(tp.get('total_wall_time_s'), 1)}</td></tr>"
+            )
+    if not rows:
+        return ""
+    header = ("<tr><th class='cat'>Model</th><th class='cat'>Benchmark</th>"
+              "<th class='num'>Samples</th><th class='num'>Samples/s</th>"
+              "<th class='num'>Tokens/s</th><th class='num'>Avg&nbsp;s</th>"
+              "<th class='num'>p95&nbsp;s</th><th class='num'>Wall&nbsp;s</th></tr>")
+    return (
+        "<section class='throughput'><div class='section-label'>Throughput</div>"
+        f"<div class='chart-wrap'><table class='paper'><thead>{header}</thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div></section>"
+    )
+
+
 # ---- page assembly ---------------------------------------------------------
 
 def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
@@ -332,6 +367,8 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
             f"<span class='bench-meta'>{meta}</span></summary>"
             f"<div class='panels'>{panels}</div></details></section>")
 
+    throughput = throughput_section(data, models, benches_present)
+
     model_line = models[0] if len(models) == 1 else f"{len(models)} models"
     return (PAGE
             .replace("__MODEL__", esc(model_line))
@@ -339,6 +376,7 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
             .replace("__GENERATED__", esc(generated))
             .replace("__TILES__", tiles)
             .replace("__COMPARISON__", comparison)
+            .replace("__THROUGHPUT__", throughput)
             .replace("__SECTIONS__", "".join(sections)))
 
 
@@ -355,6 +393,8 @@ __TILES__
   <div class="section-label">Overall accuracy</div>
   <div class="chart-wrap">__COMPARISON__</div>
 </section>
+
+__THROUGHPUT__
 
 __SECTIONS__
 
@@ -465,6 +505,7 @@ table.paper td.n{ text-align:right; font-variant-numeric:tabular-nums; color:var
 .pending{ color:var(--muted); font-size:13px; font-style:italic; margin:4px 0 0; }
 
 .leaderboard{ margin-bottom:20px; }
+.throughput{ margin-top:28px; }
 .foot{ margin-top:40px; padding-top:16px; border-top:1px solid var(--hair); color:var(--muted); font-size:12px; }
 .foot code{ font-size:11.5px; background:var(--surface); border:1px solid var(--hair); padding:1px 5px; border-radius:4px; }
 @media (prefers-reduced-motion:reduce){ .disc{ transition:none; } }
