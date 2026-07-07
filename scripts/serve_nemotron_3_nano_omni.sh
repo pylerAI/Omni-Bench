@@ -8,6 +8,9 @@ PORT="${PORT:-8000}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.9}"
 ALLOWED_LOCAL_MEDIA_PATH="${ALLOWED_LOCAL_MEDIA_PATH:-/gpfs/public/datasets}"
+# MoE backend: "triton" is stable for FP8/BF16 experts; NVFP4 experts need the
+# auto-selected FP4 kernels, so set MOE_BACKEND=auto (or empty) for that variant.
+MOE_BACKEND="${MOE_BACKEND:-triton}"
 export VLLM_MAX_AUDIO_DECODE_DURATION_S="${VLLM_MAX_AUDIO_DECODE_DURATION_S:-3600}"
 DATA_PARALLEL_SIZE="${DATA_PARALLEL_SIZE:-$(python - <<'PY'
 import os
@@ -23,14 +26,20 @@ else:
 PY
 )}"
 
-exec vllm serve "${MODEL_PATH}" \
-  --served-model-name "${SERVED_MODEL_NAME}" \
-  --host "${HOST}" \
-  --port "${PORT}" \
-  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
-  --data-parallel-size "${DATA_PARALLEL_SIZE}" \
-  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
-  --trust-remote-code \
-  --moe-backend triton \
-  --no-enable-flashinfer-autotune \
+ARGS=(
+  serve "${MODEL_PATH}"
+  --served-model-name "${SERVED_MODEL_NAME}"
+  --host "${HOST}"
+  --port "${PORT}"
+  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
+  --data-parallel-size "${DATA_PARALLEL_SIZE}"
+  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
+  --trust-remote-code
+  --no-enable-flashinfer-autotune
   --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}"
+)
+if [ -n "${MOE_BACKEND}" ] && [ "${MOE_BACKEND}" != "auto" ]; then
+  ARGS+=(--moe-backend "${MOE_BACKEND}")
+fi
+
+exec vllm "${ARGS[@]}"
