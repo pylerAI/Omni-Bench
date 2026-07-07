@@ -31,6 +31,18 @@ BENCH_ORDER = ["av_speakerbench", "worldsense", "videomme", "omnivideobench", "o
 # captioning benchmarks report generation metrics rather than accuracy.
 CAPTION_BENCH = {"omnidcbench"}
 
+# Full model names shown in the report (result dir name -> served model full name).
+MODEL_LABEL = {
+    "qwen3-omni": "Qwen3-Omni-30B-A3B-Instruct",
+    "nemotron-3-nano-omni": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8",
+    "nemotron-3-nano-omni-bf16": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+    "nemotron-3-nano-omni-nvfp4": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+}
+
+
+def model_label(name: str) -> str:
+    return MODEL_LABEL.get(name, name)
+
 DIM_LABEL = {
     "by_category": "Category", "by_sub_category": "Sub-category", "by_task_id": "Task",
     "by_domain": "Domain", "by_task_domain": "Task domain", "by_task_type": "Task type",
@@ -127,7 +139,7 @@ def comparison_chart(labels: list[str], models: list[str],
     legend = ""
     if multi:
         chips = "".join(
-            f"<span class='lg'><span class='sw s{i % 8}'></span>{esc(m)}</span>"
+            f"<span class='lg'><span class='sw s{i % 8}'></span>{esc(model_label(m))}</span>"
             for i, m in enumerate(models))
         legend = f"<div class='legend'>{chips}</div>"
 
@@ -150,7 +162,7 @@ def comparison_chart(labels: list[str], models: list[str],
             bw = plot_w * val / 100
             cls = f"fill s{m_i % 8}" if multi else "fill"
             p.append(f"<rect class='{cls}' x='{left}' y='{y}' width='{bw:.1f}' height='{bar_h}' rx='4'>"
-                     f"<title>{esc(models[m_i])} · {esc(label)}: {pct(val)}{esc(units[r])}</title></rect>")
+                     f"<title>{esc(model_label(models[m_i]))} · {esc(label)}: {pct(val)}{esc(units[r])}</title></rect>")
             p.append(f"<text class='val' x='{left + bw + 8:.1f}' y='{y + bar_h / 2:.1f}' "
                      f"dominant-baseline='central'>{pct(val)}</text>")
     p.append("</svg>")
@@ -180,7 +192,7 @@ def dim_table(dim_key: str, per_model: dict[str, dict], models: list[str]) -> st
 
     multi = len(models) > 1
     if multi:
-        head = "".join(f"<th class='num'>{esc(m)}</th>" for m in models)
+        head = "".join(f"<th class='num'>{esc(model_label(m))}</th>" for m in models)
         rows = []
         for c in cats:
             vals = {m: acc_of(m, c) for m in models}
@@ -223,7 +235,7 @@ def caption_panel(per_model: dict[str, dict], models: list[str]) -> str:
     if not present:
         return ("<figure class='panel'><figcaption class='panel-title'>Caption metrics</figcaption>"
                 "<p class='pending'>No finalized metrics yet — run still in progress.</p></figure>")
-    head = "".join(f"<th class='num'>{esc(m)}</th>" for m in models)
+    head = "".join(f"<th class='num'>{esc(model_label(m))}</th>" for m in models)
     rows = []
     for k in present:
         tds = []
@@ -274,7 +286,7 @@ def stat_tiles(models: list[str], benches_present: list[str],
             cell = "—" if val is None else pct(val)
             strong = val is not None and col_best[b] is not None and abs(val - col_best[b]) < 1e-9
             tds.append(f"<td class='num{' best' if strong else ''}'>{cell}</td>")
-        body.append(f"<tr><td class='cat'>{esc(m)}</td>{''.join(tds)}</tr>")
+        body.append(f"<tr><td class='cat'>{esc(model_label(m))}</td>{''.join(tds)}</tr>")
     units = "".join(f"<th class='unit-row'>{'F1' if b in CAPTION_BENCH else 'Acc %'}</th>"
                     for b in benches_present)
     return (f"<section class='leaderboard'><div class='section-label'>Leaderboard</div>"
@@ -303,7 +315,7 @@ def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
             mark = "<span class='fn'>†</span>" if fallback else ""
             has_fallback = has_fallback or fallback
             rows.append(
-                f"<tr><td class='cat'>{esc(m)}</td>"
+                f"<tr><td class='cat'>{esc(model_label(m))}</td>"
                 f"<td class='cat'>{esc(BENCH_LABEL.get(b, b))}</td>"
                 f"<td class='num'>{tp.get('samples', '—'):,}</td>"
                 f"<td class='num'>{num(tp.get('samples_per_sec'))}{mark}</td>"
@@ -390,7 +402,7 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
 
     throughput = throughput_section(data, models, benches_present)
 
-    model_line = models[0] if len(models) == 1 else f"{len(models)} models"
+    model_line = model_label(models[0]) if len(models) == 1 else f"{len(models)} models"
     return (PAGE
             .replace("__MODEL__", esc(model_line))
             .replace("__NBENCH__", str(len(benches_present)))
