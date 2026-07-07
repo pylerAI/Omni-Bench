@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Use the repo venv's vllm directly (no reliance on PATH / an activated env).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VLLM="${VLLM_BIN:-$REPO_ROOT/.venv/bin/vllm}"
+[ -x "$VLLM" ] || VLLM="vllm"
+
 MODEL_PATH="${MODEL_PATH:-/gpfs/public/artifacts/models/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8/}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8}"
 HOST="${HOST:-127.0.0.1}"
@@ -37,4 +42,4 @@ if [ -n "${MOE_BACKEND}" ] && [ "${MOE_BACKEND}" != "auto" ]; then
   ARGS+=(--moe-backend "${MOE_BACKEND}")
 fi
 
-exec vllm "${ARGS[@]}"
+exec "$VLLM" "${ARGS[@]}"
