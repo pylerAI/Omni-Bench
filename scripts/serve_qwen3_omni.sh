@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Use the repo venv's vllm directly (no reliance on PATH / an activated env).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VLLM="${VLLM_BIN:-$REPO_ROOT/.venv/bin/vllm}"
+[ -x "$VLLM" ] || VLLM="vllm"
+
+# FlashInfer JIT-compiles some kernels at load, needing ninja + nvcc on PATH.
+export PATH="$REPO_ROOT/.venv/bin${PATH:+:$PATH}"
+[ -d /usr/local/cuda/bin ] && export PATH="/usr/local/cuda/bin:$PATH"
+[ -d /usr/local/cuda ] && export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+
 MODEL_PATH="${MODEL_PATH:-/gpfs/public/artifacts/models/Qwen/Qwen3-Omni-30B-A3B-Instruct/}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-Qwen3-Omni-30B-A3B-Instruct}"
 HOST="${HOST:-127.0.0.1}"
@@ -8,28 +18,31 @@ PORT="${PORT:-8000}"
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.9}"
 ALLOWED_LOCAL_MEDIA_PATH="${ALLOWED_LOCAL_MEDIA_PATH:-/gpfs/public/datasets}"
+MOE_BACKEND="${MOE_BACKEND:-triton}"
 export VLLM_MAX_AUDIO_DECODE_DURATION_S="${VLLM_MAX_AUDIO_DECODE_DURATION_S:-3600}"
-DATA_PARALLEL_SIZE="${DATA_PARALLEL_SIZE:-$(python - <<'PY'
-import os
-import subprocess
 
-visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-if visible:
-    devices = [item.strip() for item in visible.split(",") if item.strip()]
-    print(len(devices) if devices and devices != ["-1"] else 1)
-else:
-    result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, check=False)
-    print(sum(1 for line in result.stdout.splitlines() if line.startswith("GPU ")) or 1)
-PY
-)}"
+if [ -z "${DATA_PARALLEL_SIZE:-}" ]; then
+  if [ -n "${CUDA_VISIBLE_DEVICES:-}" ] && [ "${CUDA_VISIBLE_DEVICES}" != "-1" ]; then
+    DATA_PARALLEL_SIZE=$(printf '%s' "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c '[0-9]')
+  else
+    DATA_PARALLEL_SIZE=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ')
+  fi
+  [ "${DATA_PARALLEL_SIZE:-0}" -ge 1 ] 2>/dev/null || DATA_PARALLEL_SIZE=1
+fi
 
-exec vllm serve "${MODEL_PATH}" \
-  --served-model-name "${SERVED_MODEL_NAME}" \
-  --host "${HOST}" \
-  --port "${PORT}" \
-  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}" \
-  --data-parallel-size "${DATA_PARALLEL_SIZE}" \
-  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
-  --trust-remote-code \
-  --moe-backend triton \
+ARGS=(
+  serve "${MODEL_PATH}"
+  --served-model-name "${SERVED_MODEL_NAME}"
+  --host "${HOST}"
+  --port "${PORT}"
+  --tensor-parallel-size "${TENSOR_PARALLEL_SIZE}"
+  --data-parallel-size "${DATA_PARALLEL_SIZE}"
+  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}"
+  --trust-remote-code
   --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}"
+)
+if [ -n "${MOE_BACKEND}" ] && [ "${MOE_BACKEND}" != "auto" ]; then
+  ARGS+=(--moe-backend "${MOE_BACKEND}")
+fi
+
+exec "$VLLM" "${ARGS[@]}"
