@@ -207,7 +207,13 @@ def dim_table(dim_key: str, per_model: dict[str, dict], models: list[str]) -> st
 
 def caption_panel(per_model: dict[str, dict], models: list[str]) -> str:
     order = ["f1", "miou", "soda_m", "precision_mean", "recall_mean"]
-    present = [k for k in order if any(k in (per_model.get(m) or {}).get("metrics", {}) for m in models)]
+
+    def metrics_of(m: str) -> dict:
+        # `summary["metrics"]` may be absent OR explicitly null (metrics skipped
+        # / failed), so coalesce both to an empty dict.
+        return (per_model.get(m) or {}).get("metrics") or {}
+
+    present = [k for k in order if any(k in metrics_of(m) for m in models)]
     if not present:
         return ("<figure class='panel'><figcaption class='panel-title'>Caption metrics</figcaption>"
                 "<p class='pending'>No finalized metrics yet — run still in progress.</p></figure>")
@@ -216,7 +222,7 @@ def caption_panel(per_model: dict[str, dict], models: list[str]) -> str:
     for k in present:
         tds = []
         for m in models:
-            v = (per_model.get(m) or {}).get("metrics", {}).get(k)
+            v = metrics_of(m).get(k)
             tds.append(f"<td class='num'>{'—' if v is None else pct(v * 100 if v <= 1 else v)}</td>")
         rows.append(f"<tr><td class='cat'>{esc(METRIC_LABEL.get(k, k))}</td>{''.join(tds)}</tr>")
     table = (f"<table class='paper compact'><thead><tr><th class='cat'>Metric</th>{head}</tr></thead>"
