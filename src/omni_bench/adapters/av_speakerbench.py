@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +36,10 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
         records_path = output_dir / "records.jsonl"
         records = read_jsonl_records(records_path)
         done = load_existing_keys(records_path, "question_id")
+        pending = [row for row in rows if str(row.get("question_id")) not in done]
+        concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
 
-        for row in tqdm(rows, desc=f"{model.name}/AV-SpeakerBench"):
-            if str(row.get("question_id")) in done:
-                continue
+        def process_row(row: dict[str, Any]) -> dict[str, Any]:
             choices = ast.literal_eval(row["choices"]) if isinstance(row["choices"], str) else row["choices"]
             prompt = (
                 "Select the best answer to the following multiple-choice question based on the video. "
@@ -57,7 +59,7 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
             )
             response = completion.text
             parsed = extract_characters_regex(response)
-            record = {
+            return {
                 "question_id": row.get("question_id"),
                 "video_id": row.get("video_id"),
                 "category": row.get("category"),
@@ -71,9 +73,15 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "latency_s": completion.latency_s,
                 "media_path": str(media_path),
             }
-            records.append(record)
-            append_jsonl(records_path, record)
-            done.add(str(record["question_id"]))
+
+        write_lock = threading.Lock()
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(process_row, row) for row in pending]
+            for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/AV-SpeakerBench"):
+                record = future.result()
+                with write_lock:
+                    records.append(record)
+                    append_jsonl(records_path, record)
 
         summary = summarize_accuracy(records, ("category", "sub_category", "task_id"))
         write_json(output_dir / "records.json", records)

@@ -4,6 +4,8 @@ import base64
 import math
 import re
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -93,15 +95,14 @@ class WorldSenseAdapter(BenchmarkAdapter):
         records = read_jsonl_records(records_path)
         done = {worldsense_key(record) for record in records}
         num_frames = int(benchmark.extra.get("num_frames", 8))
+        concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
+        pending = [row for row in rows if worldsense_key(row) not in done]
 
-        for row in tqdm(rows, desc=f"{model.name}/WorldSense"):
-            key = worldsense_key(row)
-            if key in done:
-                continue
+        def process_row(row: dict[str, Any]) -> dict[str, Any]:
             prompt = build_prompt(row["question"], row["candidates"])
             video_path = row["video_path"]
             if not Path(video_path).exists():
-                record = {
+                return {
                     **row,
                     "prompt": prompt,
                     "response": "",
@@ -110,11 +111,8 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     "latency_s": None,
                     "error": f"Video file not found: {video_path}",
                 }
-                records.append(record)
-                append_jsonl(records_path, record)
-                done.add(key)
-                continue
-
+            # Frame sampling + audio extraction is CPU/IO-bound; running rows
+            # concurrently overlaps it with GPU inference and uses all DP replicas.
             media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
             completion = client.complete(
                 prompt,
@@ -126,7 +124,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
             )
             response = completion.text
             parsed = extract_characters_regex(response)
-            record = {
+            return {
                 **row,
                 "prompt": prompt,
                 "response": response,
@@ -139,9 +137,15 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 "total_tokens": completion.total_tokens,
                 "preprocess_cache_path": str(media["cache_path"]),
             }
-            records.append(record)
-            append_jsonl(records_path, record)
-            done.add(key)
+
+        write_lock = threading.Lock()
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(process_row, row) for row in pending]
+            for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/WorldSense"):
+                record = future.result()
+                with write_lock:
+                    records.append(record)
+                    append_jsonl(records_path, record)
 
         summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
         summary["missing_videos"] = sum(1 for row in records if row.get("error"))

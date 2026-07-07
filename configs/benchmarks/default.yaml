@@ -5,6 +5,7 @@ benchmarks:
     mode: av
     max_tokens: 8192
     temperature: 0
+    concurrency: 8       # in-flight requests; uses all DP replicas
 
   - name: omnivideobench
     annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
@@ -50,3 +51,4 @@ benchmarks:
     max_tokens: 8192
     temperature: 0
     num_frames: 8
+    concurrency: 8       # in-flight requests; uses all DP replicas
