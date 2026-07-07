@@ -110,11 +110,13 @@ class VideoMMEAdapter(BenchmarkAdapter):
             }
 
         response_by_qid: dict[str, str] = {}
+        new_records: list[dict[str, Any]] = []
         started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_item, item) for item in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/Video-MME"):
                 record = future.result()
+                new_records.append(record)
                 response_by_qid[str(record["question_id"])] = record.get("response", "")
                 with write_lock:
                     records.append(record)
@@ -130,7 +132,13 @@ class VideoMMEAdapter(BenchmarkAdapter):
             record["parsed_answer"] = extract_answer(record.get("response"))
             record["is_correct"] = record["parsed_answer"] == record.get("answer")
 
-        throughput_summary = summarize_throughput(records, wall_time_s=wall_time_s if pending else None)
+        # Throughput reflects what THIS run processed over its real wall-clock. A pure
+        # resume (nothing new) keeps the prior run's throughput rather than clobbering
+        # it with a serial-equivalent recompute.
+        if new_records:
+            throughput_summary = summarize_throughput(new_records, wall_time_s)
+        else:
+            throughput_summary = read_prior_throughput(output_dir / "summary.json")
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "throughput_summary.json", throughput_summary)
@@ -315,12 +323,29 @@ def resolve_video_path(video_dir: Path, video_name: str) -> Path:
     return video_dir / f"{video_name}.mp4"
 
 
-def summarize_throughput(records: list[dict[str, Any]], wall_time_s: float | None = None) -> dict[str, Any]:
+def read_prior_throughput(summary_path: Path) -> dict[str, Any] | None:
+    """The throughput block from a previously written summary, if any."""
+    if not summary_path.exists():
+        return None
+    try:
+        prior = read_json(summary_path)
+    except (ValueError, OSError):
+        return None
+    tp = prior.get("throughput") if isinstance(prior, dict) else None
+    return tp if isinstance(tp, dict) else None
+
+
+def summarize_throughput(records: list[dict[str, Any]], wall_time_s: float) -> dict[str, Any]:
+    """Throughput for the records processed in one run, over the measured wall-clock.
+
+    ``records`` should be only what this run actually processed and ``wall_time_s``
+    the executor's elapsed time, so rates reflect real concurrent throughput. A run
+    that processes nothing (pure resume) must not call this — carry the previous
+    summary's throughput forward instead.
+    """
     latencies = [float(row["latency_s"]) for row in records if row.get("latency_s") is not None]
-    # Under concurrency, summed per-request latency overstates elapsed time, so
-    # rates use the measured wall-clock when available (falling back to the sum).
     summed_latency_s = sum(latencies)
-    elapsed_s = wall_time_s if wall_time_s is not None else summed_latency_s
+    elapsed_s = wall_time_s
     unique_videos = {row.get("video_id") for row in records if row.get("video_id") is not None}
 
     prompt_tokens = sum_optional_int(row.get("prompt_tokens") for row in records)
