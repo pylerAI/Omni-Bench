@@ -6,6 +6,7 @@ import io
 import json
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_jsonl_records, write_json, write_jsonl
+from omni_bench.io import append_jsonl, read_jsonl_records, summarize_throughput, write_json, write_jsonl
 
 
 PROMPT = (
@@ -134,6 +135,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                 record["audio_fallback_reason"] = fallback_reason
             return record
 
+        started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_row, row) for row in pending_rows]
             progress = tqdm(
@@ -146,6 +148,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                 records.append(record)
                 append_jsonl(prediction_path, record)
                 done.add(str(record.get("clip_path")))
+        wall_time_s = time.perf_counter() - started
 
         records = dedupe_records_by_clip(records)
         write_jsonl(prediction_path, records)
@@ -160,6 +163,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
             "failed": sum(1 for row in records if row.get("prediction") == "FAILED" or row.get("error")),
             "prediction_file": str(output_dir / "predictions.jsonl"),
             "audio_fallbacks": sum(1 for row in records if row.get("use_audio_in_video") is False),
+            "throughput": summarize_throughput(records, wall_time_s=wall_time_s if pending_rows else None),
         }
         summary.update(metric_result)
         write_json(output_dir / "records.json", records)

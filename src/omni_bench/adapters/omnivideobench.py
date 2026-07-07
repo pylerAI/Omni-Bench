@@ -5,6 +5,7 @@ import json
 import re
 import string
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
@@ -18,7 +19,14 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import (
+    append_jsonl,
+    read_json,
+    read_jsonl_records,
+    summarize_accuracy,
+    summarize_throughput,
+    write_json,
+)
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
@@ -60,6 +68,7 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
 
         records: list[dict[str, Any]] = list(existing_records)
 
+        started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(
@@ -80,8 +89,10 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
                 record = future.result()
                 records.append(record)
                 append_jsonl(records_path, record)
+        wall_time_s = time.perf_counter() - started
 
         summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
+        summary["throughput"] = summarize_throughput(records, wall_time_s=wall_time_s if pending_items else None)
         summary["max_workers"] = max_workers
         summary["preprocess_workers"] = preprocess_workers
         summary["preprocess_cache_dir"] = str(cache_dir)

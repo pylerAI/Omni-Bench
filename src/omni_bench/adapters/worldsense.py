@@ -5,6 +5,7 @@ import math
 import re
 import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
@@ -17,7 +18,13 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import (
+    append_jsonl,
+    read_jsonl_records,
+    summarize_accuracy,
+    summarize_throughput,
+    write_json,
+)
 
 
 SYS = (
@@ -139,6 +146,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
             }
 
         write_lock = threading.Lock()
+        started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_row, row) for row in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/WorldSense"):
@@ -146,8 +154,10 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 with write_lock:
                     records.append(record)
                     append_jsonl(records_path, record)
+        wall_time_s = time.perf_counter() - started
 
         summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
+        summary["throughput"] = summarize_throughput(records, wall_time_s=wall_time_s if pending else None)
         summary["missing_videos"] = sum(1 for row in records if row.get("error"))
         summary["vlmeval_rating_file"] = str(output_dir / "vlmeval_rating.json")
         summary["note"] = (

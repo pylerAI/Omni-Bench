@@ -79,6 +79,51 @@ def accuracy(correct: int, total: int) -> float:
     return round(correct / total * 100.0, 4) if total else 0.0
 
 
+def _percentile(values: list[float], pct: int) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    import math
+
+    index = max(0, min(len(ordered) - 1, math.ceil((pct / 100.0) * len(ordered)) - 1))
+    return round(ordered[index], 6)
+
+
+def _rate(numerator: float, denominator: float) -> float:
+    return round(numerator / denominator, 6) if denominator else 0.0
+
+
+def summarize_throughput(rows: Iterable[dict[str, Any]], wall_time_s: float | None = None) -> dict[str, Any]:
+    """Latency/throughput stats from per-record ``latency_s`` and token counts.
+
+    Rates use the measured wall-clock when given; under concurrency the summed
+    per-record latency overstates elapsed time, so pass the executor wall-clock.
+    """
+    rows_list = list(rows)
+    latencies = [float(r["latency_s"]) for r in rows_list if r.get("latency_s") is not None]
+    summed = sum(latencies)
+    elapsed = wall_time_s if wall_time_s is not None else summed
+
+    def _sum(key: str) -> int:
+        return sum(int(r[key]) for r in rows_list if r.get(key) is not None)
+
+    completion_tokens = _sum("completion_tokens")
+    total_tokens = _sum("total_tokens")
+    return {
+        "samples": len(rows_list),
+        "total_wall_time_s": round(elapsed, 6),
+        "summed_latency_s": round(summed, 6),
+        "avg_latency_s": round(summed / len(latencies), 6) if latencies else 0.0,
+        "p50_latency_s": _percentile(latencies, 50),
+        "p95_latency_s": _percentile(latencies, 95),
+        "samples_per_sec": _rate(len(rows_list), elapsed),
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "completion_tokens_per_sec": _rate(completion_tokens, elapsed),
+        "total_tokens_per_sec": _rate(total_tokens, elapsed),
+    }
+
+
 def summarize_accuracy(rows: Iterable[dict[str, Any]], group_keys: Iterable[str]) -> dict[str, Any]:
     rows_list = list(rows)
     summary: dict[str, Any] = {

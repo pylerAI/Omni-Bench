@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import math
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -17,7 +18,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, write_json
+from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
@@ -125,17 +126,24 @@ class VideoMMEAdapter(BenchmarkAdapter):
             if qid in response_by_qid:
                 item["question_ref"]["response"] = response_by_qid[qid]
 
+        for record in records:
+            record["parsed_answer"] = extract_answer(record.get("response"))
+            record["is_correct"] = record["parsed_answer"] == record.get("answer")
+
         throughput_summary = summarize_throughput(records, wall_time_s=wall_time_s if pending else None)
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "throughput_summary.json", throughput_summary)
-        summary = {
-            "total": len(records),
-            "official_results_file": str(output_dir / "official_results.json"),
-            "throughput_summary_file": str(output_dir / "throughput_summary.json"),
-            "throughput": throughput_summary,
-            "note": "Run the official Video-MME evaluator on official_results.json for accuracy.",
-        }
+        summary = summarize_accuracy(records, ("duration", "task_type", "domain"))
+        summary.update(
+            {
+                "official_results_file": str(output_dir / "official_results.json"),
+                "throughput_summary_file": str(output_dir / "throughput_summary.json"),
+                "throughput": throughput_summary,
+                "note": "Accuracy is exact-match on the parsed letter; official_results.json "
+                "feeds the official Video-MME evaluator for the reference score.",
+            }
+        )
         write_json(output_dir / "summary.json", summary)
         return summary
 
@@ -223,6 +231,24 @@ def _resize_to_pixel_budget(frame: Any, max_pixels: int, factor: int = 28) -> An
     if (new_h, new_w) != (height, width):
         frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return frame
+
+
+_ANSWER_PREFIXES = (
+    "The best answer is", "The correct answer is", "The answer is", "The answer",
+    "Best answer:", "Answer:", "Option:",
+)
+
+
+def extract_answer(response: str | None) -> str:
+    """Exact-match letter extraction, mirroring the official Video-MME / VLMEvalKit
+    matching: strip answer prefixes, then take the first A-D."""
+    normalized = (response or "").strip()
+    for prefix in _ANSWER_PREFIXES:
+        normalized = normalized.replace(prefix, "")
+    if len(normalized.split()) > 10 and not re.search(r"[ABCD]", normalized):
+        return ""
+    match = re.search(r"[ABCD]", normalized)
+    return match.group(0) if match else ""
 
 
 def load_videomme_annotation(path: str | Path) -> list[dict[str, Any]]:
