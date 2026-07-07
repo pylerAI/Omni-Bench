@@ -23,10 +23,27 @@ def file_url(path: str | Path) -> str:
     return Path(path).expanduser().resolve().as_uri()
 
 
+def merge_extra_body(base: dict[str, Any] | None, override: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge two extra_body dicts, one level deep. ``override`` wins on leaf
+    conflicts; nested dicts under the same key (e.g. ``mm_processor_kwargs``) are
+    merged rather than replaced."""
+    merged: dict[str, Any] = {}
+    for source in (base, override):
+        for key, value in (source or {}).items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = {**merged[key], **value}
+            else:
+                merged[key] = value
+    return merged
+
+
 class VllmChatClient:
     def __init__(self, model: ModelConfig, default_timeout_s: float = 600.0) -> None:
         self.model = model
         self.timeout_s = model.request_timeout_s or default_timeout_s
+        # Model-level defaults (e.g. chat_template_kwargs to toggle reasoning)
+        # merged into every request's extra_body.
+        self.default_extra_body: dict[str, Any] = dict(model.extra.get("extra_body") or {})
         self.client = OpenAI(
             base_url=model.resolved_base_url,
             api_key=model.api_key,
@@ -68,7 +85,7 @@ class VllmChatClient:
         messages.append({"role": "user", "content": content})
 
         started = time.perf_counter()
-        body = dict(extra_body or {})
+        body = merge_extra_body(self.default_extra_body, extra_body)
         if top_p is not None:
             body["top_p"] = top_p
         if do_sample is not None:

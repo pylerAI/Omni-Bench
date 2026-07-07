@@ -7,6 +7,12 @@ models:
     served_model_name: Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
     weight_path: /gpfs/public/artifacts/models/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8/
     base_url: http://127.0.0.1:8000/v1
+    # Reasoning model: disable the chain-of-thought so MCQ benchmarks get a
+    # direct answer (avoids 14k-token traces truncated at max_tokens). Merged
+    # into every request's extra_body by VllmChatClient.
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
     vllm:
       host: 127.0.0.1
       port: 8000
