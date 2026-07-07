@@ -6,6 +6,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VLLM="${VLLM_BIN:-$REPO_ROOT/.venv/bin/vllm}"
 [ -x "$VLLM" ] || VLLM="vllm"
 
+# FlashInfer JIT-compiles some kernels at load, needing ninja + nvcc on PATH.
+export PATH="$REPO_ROOT/.venv/bin${PATH:+:$PATH}"
+[ -d /usr/local/cuda/bin ] && export PATH="/usr/local/cuda/bin:$PATH"
+[ -d /usr/local/cuda ] && export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
+
 MODEL_PATH="${MODEL_PATH:-/gpfs/public/artifacts/models/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8/}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8}"
 HOST="${HOST:-127.0.0.1}"
