@@ -12,19 +12,14 @@ ALLOWED_LOCAL_MEDIA_PATH="${ALLOWED_LOCAL_MEDIA_PATH:-/gpfs/public/datasets}"
 # auto-selected FP4 kernels, so set MOE_BACKEND=auto (or empty) for that variant.
 MOE_BACKEND="${MOE_BACKEND:-triton}"
 export VLLM_MAX_AUDIO_DECODE_DURATION_S="${VLLM_MAX_AUDIO_DECODE_DURATION_S:-3600}"
-DATA_PARALLEL_SIZE="${DATA_PARALLEL_SIZE:-$(python - <<'PY'
-import os
-import subprocess
-
-visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-if visible:
-    devices = [item.strip() for item in visible.split(",") if item.strip()]
-    print(len(devices) if devices and devices != ["-1"] else 1)
-else:
-    result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, check=False)
-    print(sum(1 for line in result.stdout.splitlines() if line.startswith("GPU ")) or 1)
-PY
-)}"
+if [ -z "${DATA_PARALLEL_SIZE:-}" ]; then
+  if [ -n "${CUDA_VISIBLE_DEVICES:-}" ] && [ "${CUDA_VISIBLE_DEVICES}" != "-1" ]; then
+    DATA_PARALLEL_SIZE=$(printf '%s' "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | grep -c '[0-9]')
+  else
+    DATA_PARALLEL_SIZE=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU ')
+  fi
+  [ "${DATA_PARALLEL_SIZE:-0}" -ge 1 ] 2>/dev/null || DATA_PARALLEL_SIZE=1
+fi
 
 ARGS=(
   serve "${MODEL_PATH}"
