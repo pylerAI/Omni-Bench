@@ -106,10 +106,16 @@ def headline(bench: str, summary: dict) -> tuple[float | None, str]:
 # ---- rendering: charts & tables --------------------------------------------
 
 def comparison_chart(labels: list[str], models: list[str],
-                     matrix: list[list[float | None]]) -> str:
-    """Grouped horizontal accuracy bars. rows = benchmarks, groups = models."""
+                     matrix: list[list[float | None]],
+                     units: list[str] | None = None) -> str:
+    """Grouped horizontal performance bars. rows = benchmarks, groups = models.
+
+    Each row's headline metric may differ (accuracy % vs F1), all scaled to 0-100
+    for visual comparison; ``units`` gives the per-row tooltip suffix.
+    """
     if not labels:
-        return "<p class='pending'>No accuracy benchmarks to compare yet.</p>"
+        return "<p class='pending'>No benchmark scores to compare yet.</p>"
+    units = units or ["%"] * len(labels)
     multi = len(models) > 1
     bar_h = 20 if multi else 32
     inner, gap, top, left, right, bottom = 4, 18, 8, 168, 52, 26
@@ -126,7 +132,7 @@ def comparison_chart(labels: list[str], models: list[str],
         legend = f"<div class='legend'>{chips}</div>"
 
     p = [f"<svg viewBox='0 0 {width} {height}' class='chart' role='img' "
-         f"aria-label='Overall accuracy by benchmark'>"]
+         f"aria-label='Overall performance by benchmark'>"]
     for t in range(0, 101, 25):
         x = left + plot_w * t / 100
         p.append(f"<line class='grid' x1='{x:.1f}' y1='{top}' x2='{x:.1f}' y2='{height - bottom}'/>")
@@ -144,7 +150,7 @@ def comparison_chart(labels: list[str], models: list[str],
             bw = plot_w * val / 100
             cls = f"fill s{m_i % 8}" if multi else "fill"
             p.append(f"<rect class='{cls}' x='{left}' y='{y}' width='{bw:.1f}' height='{bar_h}' rx='4'>"
-                     f"<title>{esc(models[m_i])} · {esc(label)}: {pct(val)}%</title></rect>")
+                     f"<title>{esc(models[m_i])} · {esc(label)}: {pct(val)}{esc(units[r])}</title></rect>")
             p.append(f"<text class='val' x='{left + bw + 8:.1f}' y='{y + bar_h / 2:.1f}' "
                      f"dominant-baseline='central'>{pct(val)}</text>")
     p.append("</svg>")
@@ -320,12 +326,16 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
                        + [b for m in models for b in data[m] if b not in BENCH_ORDER])
     benches_present = list(dict.fromkeys(benches_present))
 
-    # cross-benchmark accuracy comparison (accuracy benches only — single axis)
-    acc_benches = [b for b in benches_present if b not in CAPTION_BENCH]
-    labels = [BENCH_LABEL.get(b, b) for b in acc_benches]
-    matrix = [[(data[m][b].get("accuracy") if b in data[m] else None) for m in models]
-              for b in acc_benches]
-    comparison = comparison_chart(labels, models, matrix)
+    # cross-benchmark performance: each row's headline metric (accuracy % or F1),
+    # all scaled to 0-100 for comparison; the unit suffix disambiguates in tooltips.
+    labels, units, matrix = [], [], []
+    for b in benches_present:
+        sample = next((data[m][b] for m in models if b in data[m]), {})
+        _, unit = headline(b, sample)
+        labels.append(BENCH_LABEL.get(b, b) if unit == "%" else f"{BENCH_LABEL.get(b, b)} · {unit}")
+        units.append("" if unit != "%" else "%")
+        matrix.append([(headline(b, data[m][b])[0] if b in data[m] else None) for m in models])
+    comparison = comparison_chart(labels, models, matrix, units)
 
     tiles = stat_tiles(models, benches_present, data)
 
@@ -390,7 +400,7 @@ PAGE = """<div class="report viz-root">
 __TILES__
 
 <section class="comparison">
-  <div class="section-label">Overall accuracy</div>
+  <div class="section-label">Overall performance</div>
   <div class="chart-wrap">__COMPARISON__</div>
 </section>
 
