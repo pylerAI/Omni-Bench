@@ -5,7 +5,7 @@ benchmarks:
     mode: av
     max_tokens: 8192
     temperature: 0
-    concurrency: 8       # in-flight requests; uses all DP replicas
+    concurrency: 24       # in-flight requests; uses all DP replicas
 
   - name: omnivideobench
     annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
@@ -15,8 +15,8 @@ benchmarks:
     do_sample: true
     fps: 2.0
     max_frames: 120
-    max_workers: 2
-    preprocess_workers: 4
+    max_workers: 16
+    preprocess_workers: 8
     preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
 
   - name: videomme
@@ -29,7 +29,7 @@ benchmarks:
     # sampling kwargs) and sent as images, like VLMEvalKit's Video-MME_64frame.
     max_frames: 64
     max_pixels: 602112   # 768*28*28 per-frame area cap (~192 tokens/frame)
-    concurrency: 8       # in-flight requests; keeps the server busy
+    concurrency: 24       # in-flight requests; keeps the server busy
 
   - name: omnidcbench
     data_path: /gpfs/public/datasets/OmniDCBench
@@ -40,7 +40,7 @@ benchmarks:
     # Frame count / resolution use the vLLM server's default video sampling:
     # per-request num_frames/fps/max_pixels are ignored by the server. Clips are
     # short (<=70s) so the default sampling stays within the context window.
-    concurrency: 8
+    concurrency: 24
     max_workers: 4
     enable_sodam: false
 
@@ -51,4 +51,4 @@ benchmarks:
     max_tokens: 8192
     temperature: 0
     num_frames: 8
-    concurrency: 8       # in-flight requests; uses all DP replicas
+    concurrency: 24       # in-flight requests; uses all DP replicas
