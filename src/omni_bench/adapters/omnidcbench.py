@@ -381,9 +381,25 @@ def parse_prediction_json(text: str) -> Any:
         if not candidate:
             continue
         try:
-            return json.loads(candidate)
+            return normalize_segments(json.loads(candidate))
         except json.JSONDecodeError:
             continue
+    return None
+
+
+def normalize_segments(value: Any) -> list[dict[str, Any]] | None:
+    """Coerce a parsed prediction to a list of segment dicts, or None.
+
+    The model sometimes returns a single segment object instead of an array; the
+    official evaluator then iterates a dict/string and crashes. Wrap a lone dict
+    in a list and drop any non-dict elements so the evaluator always sees a list
+    of segment dicts.
+    """
+    if isinstance(value, dict):
+        value = [value]
+    if isinstance(value, list):
+        segments = [segment for segment in value if isinstance(segment, dict)]
+        return segments or None
     return None
 
 
