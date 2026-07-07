@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -14,14 +13,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import (
-    append_jsonl,
-    load_existing_keys,
-    read_jsonl_records,
-    summarize_accuracy,
-    summarize_throughput,
-    write_json,
-)
+from omni_bench.io import append_jsonl, load_existing_keys, read_jsonl_records, summarize_accuracy, write_json
 
 
 class AVSpeakerBenchAdapter(BenchmarkAdapter):
@@ -79,13 +71,10 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "parsed_answer": parsed,
                 "is_correct": parsed == row.get("answer"),
                 "latency_s": completion.latency_s,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
                 "media_path": str(media_path),
             }
 
         write_lock = threading.Lock()
-        started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_row, row) for row in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/AV-SpeakerBench"):
@@ -93,10 +82,8 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 with write_lock:
                     records.append(record)
                     append_jsonl(records_path, record)
-        wall_time_s = time.perf_counter() - started
 
         summary = summarize_accuracy(records, ("category", "sub_category", "task_id"))
-        summary["throughput"] = summarize_throughput(records, wall_time_s=wall_time_s if pending else None)
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
