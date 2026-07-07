@@ -31,4 +31,6 @@ exec vllm serve "${MODEL_PATH}" \
   --data-parallel-size "${DATA_PARALLEL_SIZE}" \
   --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
   --trust-remote-code \
+  --moe-backend triton \
+  --no-enable-flashinfer-autotune \
   --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}"
