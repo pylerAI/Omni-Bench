@@ -307,7 +307,7 @@ def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
                 f"<td class='cat'>{esc(BENCH_LABEL.get(b, b))}</td>"
                 f"<td class='num'>{tp.get('samples', '—'):,}</td>"
                 f"<td class='num'>{num(tp.get('samples_per_sec'))}{mark}</td>"
-                f"<td class='num'>{num(tp.get('total_tokens_per_sec'), 1)}</td>"
+                f"<td class='num'>{num(tp.get('total_tokens_per_sec'), 1)}{mark}</td>"
                 f"<td class='num'>{num(tp.get('avg_latency_s'))}</td>"
                 f"<td class='num'>{num(tp.get('p95_latency_s'))}</td>"
                 f"<td class='num'>{num(tp.get('total_wall_time_s'), 1)}{mark}</td></tr>"
@@ -318,9 +318,9 @@ def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
               "<th class='num'>Samples</th><th class='num'>Samples/s</th>"
               "<th class='num'>Tokens/s</th><th class='num'>Avg&nbsp;s</th>"
               "<th class='num'>p95&nbsp;s</th><th class='num'>Wall&nbsp;s</th></tr>")
-    note = ("<p class='pending'>† serial-equivalent: a resumed run had no fresh wall-clock, "
-            "so Samples/s and Wall&nbsp;s use summed per-request latency. Re-run from scratch "
-            "for concurrent throughput. Avg&nbsp;s / p95&nbsp;s are per-request and always comparable.</p>"
+    note = ("<p class='pending'>† serial-equivalent: a resumed run had no fresh wall-clock, so the "
+            "rates (Samples/s, Tokens/s) and Wall&nbsp;s use summed per-request latency. Re-run from "
+            "scratch for concurrent throughput. Avg&nbsp;s / p95&nbsp;s are per-request and always comparable.</p>"
             if has_fallback else "")
     return (
         "<section class='throughput'><div class='section-label'>Throughput</div>"
