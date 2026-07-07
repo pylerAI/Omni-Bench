@@ -290,20 +290,27 @@ def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
         return "—" if value is None else f"{value:,.{digits}f}"
 
     rows = []
+    has_fallback = False
     for m in models:
         for b in benches_present:
             tp = (data.get(m, {}).get(b) or {}).get("throughput")
             if not isinstance(tp, dict):
                 continue
+            wall, summed = tp.get("total_wall_time_s"), tp.get("summed_latency_s")
+            # No real wall-clock (resumed run) → rates fell back to summed latency,
+            # i.e. serial-equivalent. Flag so it isn't read as concurrent throughput.
+            fallback = wall is not None and summed is not None and abs(wall - summed) < max(1.0, 0.005 * summed)
+            mark = "<span class='fn'>†</span>" if fallback else ""
+            has_fallback = has_fallback or fallback
             rows.append(
                 f"<tr><td class='cat'>{esc(m)}</td>"
                 f"<td class='cat'>{esc(BENCH_LABEL.get(b, b))}</td>"
                 f"<td class='num'>{tp.get('samples', '—'):,}</td>"
-                f"<td class='num'>{num(tp.get('samples_per_sec'))}</td>"
+                f"<td class='num'>{num(tp.get('samples_per_sec'))}{mark}</td>"
                 f"<td class='num'>{num(tp.get('total_tokens_per_sec'), 1)}</td>"
                 f"<td class='num'>{num(tp.get('avg_latency_s'))}</td>"
                 f"<td class='num'>{num(tp.get('p95_latency_s'))}</td>"
-                f"<td class='num'>{num(tp.get('total_wall_time_s'), 1)}</td></tr>"
+                f"<td class='num'>{num(tp.get('total_wall_time_s'), 1)}{mark}</td></tr>"
             )
     if not rows:
         return ""
@@ -311,10 +318,14 @@ def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
               "<th class='num'>Samples</th><th class='num'>Samples/s</th>"
               "<th class='num'>Tokens/s</th><th class='num'>Avg&nbsp;s</th>"
               "<th class='num'>p95&nbsp;s</th><th class='num'>Wall&nbsp;s</th></tr>")
+    note = ("<p class='pending'>† serial-equivalent: a resumed run had no fresh wall-clock, "
+            "so Samples/s and Wall&nbsp;s use summed per-request latency. Re-run from scratch "
+            "for concurrent throughput. Avg&nbsp;s / p95&nbsp;s are per-request and always comparable.</p>"
+            if has_fallback else "")
     return (
         "<section class='throughput'><div class='section-label'>Throughput</div>"
         f"<div class='chart-wrap'><table class='paper'><thead>{header}</thead>"
-        f"<tbody>{''.join(rows)}</tbody></table></div></section>"
+        f"<tbody>{''.join(rows)}</tbody></table>{note}</div></section>"
     )
 
 
@@ -516,6 +527,7 @@ table.paper td.n{ text-align:right; font-variant-numeric:tabular-nums; color:var
 
 .leaderboard{ margin-bottom:20px; }
 .throughput{ margin-top:28px; }
+.throughput .fn{ color:var(--accent); font-weight:600; margin-left:2px; vertical-align:super; font-size:9px; }
 .foot{ margin-top:40px; padding-top:16px; border-top:1px solid var(--hair); color:var(--muted); font-size:12px; }
 .foot code{ font-size:11.5px; background:var(--surface); border:1px solid var(--hair); padding:1px 5px; border-radius:4px; }
 @media (prefers-reduced-motion:reduce){ .disc{ transition:none; } }
