@@ -116,21 +116,15 @@ def write_overall_reports(result_dir, run_summary: dict[str, dict[str, object]])
 
 def build_overall_report(run_summary: dict[str, dict[str, object]]) -> dict[str, list[dict[str, object]]]:
     metric_rows = []
-    throughput_rows = []
     for model_name, benchmark_results in run_summary.items():
         metric_row: dict[str, object] = {"model": model_name}
-        throughput_row: dict[str, object] = {"model": model_name}
         for benchmark_name, summary in benchmark_results.items():
             if not isinstance(summary, dict):
                 continue
             for metric_name, value in representative_metrics(benchmark_name, summary).items():
                 metric_row[f"{benchmark_name}.{metric_name}"] = value
-            if benchmark_name == "videomme":
-                for metric_name, value in throughput_metrics(summary).items():
-                    throughput_row[metric_name] = value
         metric_rows.append(metric_row)
-        throughput_rows.append(throughput_row)
-    return {"metrics": metric_rows, "throughput": throughput_rows}
+    return {"metrics": metric_rows}
 
 
 def representative_metrics(benchmark_name: str, summary: dict[str, object]) -> dict[str, object]:
@@ -149,25 +143,12 @@ def representative_metrics(benchmark_name: str, summary: dict[str, object]) -> d
     return {"accuracy": summary.get("accuracy")}
 
 
-def throughput_metrics(summary: dict[str, object]) -> dict[str, object]:
-    throughput = summary.get("throughput")
-    throughput = throughput if isinstance(throughput, dict) else {}
-    return {
-        "avg_latency_s": throughput.get("avg_latency_s"),
-        "p50_latency_s": throughput.get("p50_latency_s"),
-        "p95_latency_s": throughput.get("p95_latency_s"),
-        "samples_per_sec": throughput.get("samples_per_sec"),
-        "tokens_per_sec": throughput.get("total_tokens_per_sec"),
-    }
-
-
 def format_overall_markdown(report: dict[str, list[dict[str, object]]]) -> str:
     return (
         "## Benchmark Metrics\n\n"
         + format_markdown_table(report.get("metrics", []))
-        + "\n## Throughput Metrics\n\n"
-        + "현재 throughput metric은 Video-MME에서만 측정합니다.\n\n"
-        + format_markdown_table(report.get("throughput", []))
+        + "\nThroughput is measured separately with `vllm bench throughput` "
+        "(see `results/throughput.json` and the HTML report).\n"
     )
 
 

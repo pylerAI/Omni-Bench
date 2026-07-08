@@ -4,11 +4,9 @@ import base64
 import math
 import re
 import threading
-import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -110,18 +108,14 @@ class VideoMMEAdapter(BenchmarkAdapter):
             }
 
         response_by_qid: dict[str, str] = {}
-        new_records: list[dict[str, Any]] = []
-        started = time.perf_counter()
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_item, item) for item in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/Video-MME"):
                 record = future.result()
-                new_records.append(record)
                 response_by_qid[str(record["question_id"])] = record.get("response", "")
                 with write_lock:
                     records.append(record)
                     append_jsonl(records_path, record)
-        wall_time_s = time.perf_counter() - started
 
         for item in flat:
             qid = str(item["question_id"])
@@ -132,24 +126,15 @@ class VideoMMEAdapter(BenchmarkAdapter):
             record["parsed_answer"] = extract_answer(record.get("response"))
             record["is_correct"] = record["parsed_answer"] == record.get("answer")
 
-        # Throughput reflects what THIS run processed over its real wall-clock. A pure
-        # resume (nothing new) keeps the prior run's throughput rather than clobbering
-        # it with a serial-equivalent recompute.
-        if new_records:
-            throughput_summary = summarize_throughput(new_records, wall_time_s)
-        else:
-            throughput_summary = read_prior_throughput(output_dir / "summary.json")
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
-        write_json(output_dir / "throughput_summary.json", throughput_summary)
         summary = summarize_accuracy(records, ("duration", "task_type", "domain"))
         summary.update(
             {
                 "official_results_file": str(output_dir / "official_results.json"),
-                "throughput_summary_file": str(output_dir / "throughput_summary.json"),
-                "throughput": throughput_summary,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
-                "feeds the official Video-MME evaluator for the reference score.",
+                "feeds the official Video-MME evaluator for the reference score. "
+                "Throughput is measured separately with `vllm bench throughput`.",
             }
         )
         write_json(output_dir / "summary.json", summary)
@@ -321,67 +306,3 @@ def resolve_video_path(video_dir: Path, video_name: str) -> Path:
         if candidate.exists():
             return candidate
     return video_dir / f"{video_name}.mp4"
-
-
-def read_prior_throughput(summary_path: Path) -> dict[str, Any] | None:
-    """The throughput block from a previously written summary, if any."""
-    if not summary_path.exists():
-        return None
-    try:
-        prior = read_json(summary_path)
-    except (ValueError, OSError):
-        return None
-    tp = prior.get("throughput") if isinstance(prior, dict) else None
-    return tp if isinstance(tp, dict) else None
-
-
-def summarize_throughput(records: list[dict[str, Any]], wall_time_s: float) -> dict[str, Any]:
-    """Throughput for the records processed in one run, over the measured wall-clock.
-
-    ``records`` should be only what this run actually processed and ``wall_time_s``
-    the executor's elapsed time, so rates reflect real concurrent throughput. A run
-    that processes nothing (pure resume) must not call this — carry the previous
-    summary's throughput forward instead.
-    """
-    latencies = [float(row["latency_s"]) for row in records if row.get("latency_s") is not None]
-    summed_latency_s = sum(latencies)
-    elapsed_s = wall_time_s
-    unique_videos = {row.get("video_id") for row in records if row.get("video_id") is not None}
-
-    prompt_tokens = sum_optional_int(row.get("prompt_tokens") for row in records)
-    completion_tokens = sum_optional_int(row.get("completion_tokens") for row in records)
-    total_tokens = sum_optional_int(row.get("total_tokens") for row in records)
-
-    return {
-        "samples": len(records),
-        "unique_videos": len(unique_videos),
-        "total_wall_time_s": round(elapsed_s, 6),
-        "summed_latency_s": round(summed_latency_s, 6),
-        "avg_latency_s": round(sum(latencies) / len(latencies), 6) if latencies else 0.0,
-        "p50_latency_s": percentile(latencies, 50),
-        "p95_latency_s": percentile(latencies, 95),
-        "samples_per_sec": safe_rate(len(records), elapsed_s),
-        "videos_per_hour": safe_rate(len(unique_videos), elapsed_s / 3600.0),
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-        "prompt_tokens_per_sec": safe_rate(prompt_tokens, elapsed_s),
-        "completion_tokens_per_sec": safe_rate(completion_tokens, elapsed_s),
-        "total_tokens_per_sec": safe_rate(total_tokens, elapsed_s),
-    }
-
-
-def sum_optional_int(values: Any) -> int:
-    return sum(int(value) for value in values if value is not None)
-
-
-def safe_rate(numerator: int | float, denominator: int | float) -> float:
-    return round(float(numerator) / float(denominator), 6) if denominator else 0.0
-
-
-def percentile(values: list[float], pct: int) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, ceil((pct / 100.0) * len(ordered)) - 1))
-    return round(ordered[index], 6)

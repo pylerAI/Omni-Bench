@@ -57,7 +57,6 @@ benchmark별 추가 파일:
 | Benchmark | 추가 출력 | 설명 |
 | --- | --- | --- |
 | Video-MME | `official_results.json` | official evaluator 입력 포맷 |
-| Video-MME | `throughput_summary.json` | latency / throughput summary |
 | WorldSense | `vlmeval_rating.json` | VLMEvalKit 방식 duration/domain/task/audio-class rating |
 | OmniDCBench | `predictions.jsonl` | TimeChat-Captioner official `Eval` script 입력 포맷 |
 
@@ -78,12 +77,12 @@ Benchmark 대표 metric:
 | Qwen3-Omni | - | - | - | - | - | - | - |
 | Nemotron-3-Nano-Omni | - | - | - | - | - | - | - |
 
-Throughput metric은 현재 Video-MME에서만 측정합니다.
+Throughput은 benchmark adapter가 아니라 `vllm bench throughput`(offline, input/output 길이 고정, text-generation 기준)으로 별도 측정합니다. 결과는 `results/throughput.json`과 HTML 리포트의 Model throughput 섹션에 정리됩니다.
 
-| Model | Avg Latency | P50 Latency | P95 Latency | Samples/sec | Tokens/sec |
-| --- | --- | --- | --- | --- | --- |
-| Qwen3-Omni | - | - | - | - | - |
-| Nemotron-3-Nano-Omni | - | - | - | - | - |
+| Model | Requests/sec | Output Tokens/sec | Total Tokens/sec |
+| --- | --- | --- | --- |
+| Qwen3-Omni | - | - | - |
+| Nemotron-3-Nano-Omni | - | - | - |
 
 대표 metric 정의:
 
@@ -95,8 +94,7 @@ Throughput metric은 현재 Video-MME에서만 측정합니다.
   - F1: 예측 timestamp/caption segment와 GT segment matching의 F1
   - mIoU: 예측 timestamp 구간과 GT timestamp 구간의 평균 temporal overlap
   - SODA_M: temporal alignment와 caption content matching을 결합한 dense caption score
-- Throughput:
-  - Avg Latency: sample별 wall-clock latency 평균
-  - P50/P95 Latency: latency median 및 tail latency
-  - Samples/sec: 초당 처리 sample 수
-  - Tokens/sec: prompt + completion 기준 total token throughput
+- Throughput (`vllm bench throughput`, offline, 고정 input/output 길이):
+  - Requests/sec: 초당 처리 request 수
+  - Output Tokens/sec: 생성(decode) token throughput
+  - Total Tokens/sec: prompt + output 전체 token throughput

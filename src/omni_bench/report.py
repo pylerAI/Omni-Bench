@@ -295,55 +295,47 @@ def stat_tiles(models: list[str], benches_present: list[str],
             f"<tr><th></th>{units}</tr></thead><tbody>{''.join(body)}</tbody></table></div></section>")
 
 
-def throughput_section(data: dict[str, dict[str, dict]], models: list[str],
-                       benches_present: list[str]) -> str:
-    """Table of per-(model, benchmark) throughput for summaries that measured it."""
-    def num(value: Any, digits: int = 2) -> str:
+def throughput_section(throughput: dict[str, Any] | None) -> str:
+    """Model generation throughput measured offline with ``vllm bench throughput``.
+
+    ``throughput`` is the parsed ``results/throughput.json`` (source, params,
+    per-model rates); returns empty if absent.
+    """
+    if not throughput or not isinstance(throughput.get("models"), dict):
+        return ""
+    def num(value: Any, digits: int = 1) -> str:
         return "—" if value is None else f"{value:,.{digits}f}"
 
-    rows = []
-    has_fallback = False
-    for m in models:
-        for b in benches_present:
-            tp = (data.get(m, {}).get(b) or {}).get("throughput")
-            if not isinstance(tp, dict):
-                continue
-            wall, summed = tp.get("total_wall_time_s"), tp.get("summed_latency_s")
-            # No real wall-clock (resumed run) → rates fell back to summed latency,
-            # i.e. serial-equivalent. Flag so it isn't read as concurrent throughput.
-            fallback = wall is not None and summed is not None and abs(wall - summed) < max(1.0, 0.005 * summed)
-            mark = "<span class='fn'>†</span>" if fallback else ""
-            has_fallback = has_fallback or fallback
-            rows.append(
-                f"<tr><td class='cat'>{esc(model_label(m))}</td>"
-                f"<td class='cat'>{esc(BENCH_LABEL.get(b, b))}</td>"
-                f"<td class='num'>{tp.get('samples', '—'):,}</td>"
-                f"<td class='num'>{num(tp.get('samples_per_sec'))}{mark}</td>"
-                f"<td class='num'>{num(tp.get('total_tokens_per_sec'), 1)}{mark}</td>"
-                f"<td class='num'>{num(tp.get('avg_latency_s'))}</td>"
-                f"<td class='num'>{num(tp.get('p95_latency_s'))}</td>"
-                f"<td class='num'>{num(tp.get('total_wall_time_s'), 1)}{mark}</td></tr>"
-            )
-    if not rows:
-        return ""
-    header = ("<tr><th class='cat'>Model</th><th class='cat'>Benchmark</th>"
-              "<th class='num'>Samples</th><th class='num'>Samples/s</th>"
-              "<th class='num'>Tokens/s</th><th class='num'>Avg&nbsp;s</th>"
-              "<th class='num'>p95&nbsp;s</th><th class='num'>Wall&nbsp;s</th></tr>")
-    note = ("<p class='pending'>† serial-equivalent: a resumed run had no fresh wall-clock, so the "
-            "rates (Samples/s, Tokens/s) and Wall&nbsp;s use summed per-request latency. Re-run from "
-            "scratch for concurrent throughput. Avg&nbsp;s / p95&nbsp;s are per-request and always comparable.</p>"
-            if has_fallback else "")
+    tp_models = throughput["models"]
+    order = sorted(tp_models, key=lambda m: tp_models[m].get("output_tokens_per_second") or 0, reverse=True)
+    rows = "".join(
+        f"<tr><td class='cat'>{esc(model_label(m))}</td>"
+        f"<td class='num'>{num(tp_models[m].get('requests_per_second'), 2)}</td>"
+        f"<td class='num'>{num(tp_models[m].get('output_tokens_per_second'))}</td>"
+        f"<td class='num'>{num(tp_models[m].get('total_tokens_per_second'))}</td></tr>"
+        for m in order
+    )
+    header = ("<tr><th class='cat'>Model</th><th class='num'>Requests/s</th>"
+              "<th class='num'>Output&nbsp;tok/s</th><th class='num'>Total&nbsp;tok/s</th></tr>")
+    p = throughput.get("params") or {}
+    parts = [str(throughput.get("source", "vllm bench throughput"))]
+    if p:
+        parts.append(f"{p.get('device', '')}, in={p.get('input_len')} out={p.get('output_len')} "
+                     f"n={p.get('num_prompts')}".strip())
+        if p.get("note"):
+            parts.append(str(p["note"]))
+    caption = esc(" · ".join(x for x in parts if x))
     return (
-        "<section class='throughput'><div class='section-label'>Throughput</div>"
+        "<section class='throughput'><div class='section-label'>Model throughput</div>"
         f"<div class='chart-wrap'><table class='paper'><thead>{header}</thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>{note}</div></section>"
+        f"<tbody>{rows}</tbody></table><p class='pending'>{caption}</p></div></section>"
     )
 
 
 # ---- page assembly ---------------------------------------------------------
 
-def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
+def build_html(data: dict[str, dict[str, dict]], generated: str,
+               throughput: dict[str, Any] | None = None) -> str:
     models = list(data.keys())
     benches_present = ([b for b in BENCH_ORDER if any(b in data[m] for m in models)]
                        + [b for m in models for b in data[m] if b not in BENCH_ORDER])
@@ -400,7 +392,7 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
             f"<span class='bench-meta'>{meta}</span></summary>"
             f"<div class='panels'>{panels}</div></details></section>")
 
-    throughput = throughput_section(data, models, benches_present)
+    throughput_html = throughput_section(throughput)
 
     model_line = model_label(models[0]) if len(models) == 1 else f"{len(models)} models"
     return (PAGE
@@ -409,7 +401,7 @@ def build_html(data: dict[str, dict[str, dict]], generated: str) -> str:
             .replace("__GENERATED__", esc(generated))
             .replace("__TILES__", tiles)
             .replace("__COMPARISON__", comparison)
-            .replace("__THROUGHPUT__", throughput)
+            .replace("__THROUGHPUT__", throughput_html)
             .replace("__SECTIONS__", "".join(sections)))
 
 
@@ -554,5 +546,12 @@ def render_report(results_dir: Path, out: Path | None = None) -> Path:
     data = load_results(results_dir)
     if not data:
         raise ValueError(f"No summary.json found under {results_dir}")
-    out.write_text(build_html(data, _dt.date.today().isoformat()), encoding="utf-8")
+    tp_path = results_dir / "throughput.json"
+    throughput = None
+    if tp_path.exists():
+        try:
+            throughput = json.loads(tp_path.read_text())
+        except (ValueError, OSError):
+            throughput = None
+    out.write_text(build_html(data, _dt.date.today().isoformat(), throughput), encoding="utf-8")
     return out
