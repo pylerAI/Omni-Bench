@@ -43,6 +43,21 @@ MODEL_LABEL = {
 def model_label(name: str) -> str:
     return MODEL_LABEL.get(name, name)
 
+
+# Compact labels for detail-table column headers, where the full name is too wide
+# to fit several models side by side. Full names still appear in the leaderboard
+# rows and the comparison-chart legend, so identity is never lost.
+MODEL_SHORT = {
+    "qwen3-omni": "Qwen3-Omni",
+    "nemotron-3-nano-omni": "Nemotron FP8",
+    "nemotron-3-nano-omni-bf16": "Nemotron BF16",
+    "nemotron-3-nano-omni-nvfp4": "Nemotron NVFP4",
+}
+
+
+def model_short(name: str) -> str:
+    return MODEL_SHORT.get(name, model_label(name))
+
 DIM_LABEL = {
     "by_category": "Category", "by_sub_category": "Sub-category", "by_task_id": "Task",
     "by_domain": "Domain", "by_task_domain": "Task domain", "by_task_type": "Task type",
@@ -192,7 +207,7 @@ def dim_table(dim_key: str, per_model: dict[str, dict], models: list[str]) -> st
 
     multi = len(models) > 1
     if multi:
-        head = "".join(f"<th class='num'>{esc(model_label(m))}</th>" for m in models)
+        head = "".join(f"<th class='num'>{esc(model_short(m))}</th>" for m in models)
         rows = []
         for c in cats:
             vals = {m: acc_of(m, c) for m in models}
@@ -235,7 +250,7 @@ def caption_panel(per_model: dict[str, dict], models: list[str]) -> str:
     if not present:
         return ("<figure class='panel'><figcaption class='panel-title'>Caption metrics</figcaption>"
                 "<p class='pending'>No finalized metrics yet — run still in progress.</p></figure>")
-    head = "".join(f"<th class='num'>{esc(model_label(m))}</th>" for m in models)
+    head = "".join(f"<th class='num'>{esc(model_short(m))}</th>" for m in models)
     rows = []
     for k in present:
         tds = []
@@ -385,12 +400,13 @@ def build_html(data: dict[str, dict[str, dict]], generated: str,
                 dim_table(k, {m: (data[m][b].get(k) or {}) for m in bmodels}, bmodels)
                 for k in dim_keys)
 
+        panels_cls = "panels multi" if len(bmodels) > 1 else "panels"
         sections.append(
             f"<section class='bench'><details open>"
             f"<summary><span class='disc'></span>"
             f"<h2>{esc(BENCH_LABEL.get(b, b))}</h2>"
             f"<span class='bench-meta'>{meta}</span></summary>"
-            f"<div class='panels'>{panels}</div></details></section>")
+            f"<div class='{panels_cls}'>{panels}</div></details></section>")
 
     throughput_html = throughput_section(throughput)
 
@@ -509,13 +525,18 @@ __SECTIONS__
 .bench-meta .sep{ opacity:0.45; }
 .panels{ display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:22px 30px;
   align-items:start; padding:4px 18px 22px; }
-.panel{ margin:0; }
+/* multi-model: one dimension per row at full width, each table horizontally
+   scrollable so many model columns never overflow into the neighbouring panel. */
+.panels.multi{ grid-template-columns:1fr; gap:24px; }
+.panels.multi .panel{ overflow-x:auto; }
+.panels.multi table.paper{ max-width:840px; }
+.panel{ margin:0; min-width:0; }
 .panel-title{ margin-bottom:8px; }
 
 table.paper{ width:100%; border-collapse:collapse; font-size:13px; }
 table.paper thead th{ font-weight:600; color:var(--ink-2); text-align:left; padding:0 10px 6px;
   border-bottom:1.5px solid var(--rule); font-size:11.5px; letter-spacing:0.04em; text-transform:uppercase; }
-table.paper thead th.num{ text-align:right; }
+table.paper thead th.num{ text-align:right; white-space:nowrap; }
 table.paper thead th.unit-row{ text-align:right; border-bottom:1px solid var(--hair);
   padding-top:2px; font-size:10px; color:var(--muted); font-weight:500; text-transform:none; letter-spacing:0; }
 table.paper tbody td{ padding:6px 10px; border-bottom:1px solid var(--hair); vertical-align:middle; }
@@ -530,6 +551,7 @@ table.paper td.n{ text-align:right; font-variant-numeric:tabular-nums; color:var
 .pending{ color:var(--muted); font-size:13px; font-style:italic; margin:4px 0 0; }
 
 .leaderboard{ margin-bottom:20px; }
+.leaderboard td.cat{ max-width:none; white-space:nowrap; }
 .throughput{ margin-top:28px; }
 .throughput .fn{ color:var(--accent); font-weight:600; margin-left:2px; vertical-align:super; font-size:9px; }
 .foot{ margin-top:40px; padding-top:16px; border-top:1px solid var(--hair); color:var(--muted); font-size:12px; }

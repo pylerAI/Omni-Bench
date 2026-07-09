@@ -168,6 +168,8 @@ uv run omni-bench list-benchmarks
 
 ## 결과
 
+프로젝트 최상위의 [`report.html`](report.html)은 전체 benchmark 결과를 chart/table로 정리한 리포트입니다. **2026-07-08 기준으로 측정된 결과**입니다 (Qwen3-Omni-30B-A3B-Instruct, Nemotron-3-Nano-Omni-30B-A3B-Reasoning FP8/BF16/NVFP4). `omni-bench run`이 매 실행마다 `results/report.html`을 자동 생성하며, 최상위 `report.html`은 그 시점의 스냅샷입니다.
+
 결과는 아래 경로에 저장됩니다.
 
 ```text
