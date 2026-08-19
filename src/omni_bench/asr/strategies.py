@@ -97,9 +97,21 @@ class SttStrategy(ABC):
             empty.elapsed_s = time.perf_counter() - started
             return empty
 
+        # Weight loading is charged separately: it happens once per worker, and
+        # folding it into elapsed_s made the first file of every shard look
+        # ~100x slower than it was.
+        load_started = time.perf_counter()
         self.ensure_loaded()
+        load_s = time.perf_counter() - load_started
+
+        work_started = time.perf_counter()
         with audio_source(request.media_path) as audio_path:
             segments, meta = self._transcribe(audio_path, request)
+        elapsed_s = time.perf_counter() - work_started
+
+        params = self.describe_params(request)
+        if load_s > 0.05:
+            params["model_load_s"] = round(load_s, 2)
 
         return Transcription(
             media=media,
@@ -109,8 +121,8 @@ class SttStrategy(ABC):
             language=meta.get("language"),
             language_probability=meta.get("language_probability"),
             duration_s=meta.get("duration_s"),
-            elapsed_s=time.perf_counter() - started,
-            params=self.describe_params(request),
+            elapsed_s=elapsed_s,
+            params=params,
         )
 
     def describe_params(self, request: TranscriptionRequest) -> dict[str, Any]:
