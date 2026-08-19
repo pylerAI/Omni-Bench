@@ -1,0 +1,15 @@
+=== 동일 조건 최종 비교 (2026-08-19, 같은 코드·같은 서빙) ===
+Benchmark              E0      E1  ours best  Qwen3-Omni      차이
+av_speakerbench    46.58%  50.47%     50.47%      50.78%  -0.31
+worldsense         38.75%  46.97%     46.97%      51.48%  -4.51
+omnivideobench     37.60%  41.70%     41.70%      41.10%  +0.60
+videomme(robust)   67.26%  67.26%     67.26%      69.67%  -2.41
+omnidcbench F1     55.93%  48.25%     55.93%      68.53% -12.61
+
+=== audio 무관 항목 재검증 (동일 조건) ===
+  AV-SpeakerBench Audio-centric     ours  49.63%  omni  51.49%   -1.86
+  AV-SpeakerBench Speaker-centric   ours  50.68%  omni  50.20%   +0.48
+  AV-SpeakerBench Visual-centric    ours  51.87%  omni  50.41%   +1.46
+  WorldSense      Reasoning         ours  53.98%  omni  56.99%   -3.01
+  WorldSense      Recognition       ours  42.30%  omni  47.32%   -5.02
+  WorldSense      Understanding     ours  47.96%  omni  53.03%   -5.07

@@ -158,19 +158,48 @@ ASR 산출물:
 
 ## 결과 (2026-08-19 측정)
 
-benchmark별 최선값 기준. E1 = Whisper transcript 주입, E0 = audio 제거. Video-MME는 benchmark 단위로 audio를 쓰지 않으므로 E0/E1이 동일합니다.
+### 참조 수치는 부분적으로 재현되지 않는다
 
-| Benchmark | E0 | E1 | E1−E0 | best | Qwen3-Omni | 격차 |
-| --- | --- | --- | --- | --- | --- | --- |
-| AV-SpeakerBench | 46.58 | **50.47** | +3.89 | 50.47 | 55.98 | −5.51 |
-| WorldSense | 38.75 | **46.97** | +8.22 | 46.97 | 51.36 | −4.39 |
-| Video-MME | 56.78 | 56.78 | 0 | 56.78 | 70.19 | −13.41 |
-| OmniVideoBench | 37.60 | **41.70** | +4.10 | 41.70 | 41.20 | **+0.50** |
-| OmniDCBench F1 | **55.93** | 48.25 | **−7.68** | 55.93 | 71.99 | −16.06 |
+비교의 기준으로 삼으려 했던 2026-07-08 리포트 수치를 같은 코드로 재측정한 결과, **비주얼 입력이 config에 고정된 3개는 재현되고 서버 기본 sampling에 위임한 2개는 재현되지 않았습니다.**
 
-기존 4개 모델 수치는 2026-07-08 측정 결과(`report.html`)입니다. 총 19,712 샘플 · 94.5분 · 에러 0.
+| Benchmark | 재현 | 리포트 | 차이 | frame sampling |
+| --- | --- | --- | --- | --- |
+| OmniVideoBench | 41.10 | 41.20 | −0.10 | 클라이언트 2fps/120장 |
+| WorldSense | 51.48 | 51.36 | +0.12 | 클라이언트 8장 |
+| Video-MME | 69.67 | 70.19 | −0.52 | 클라이언트 64장 |
+| OmniDCBench F1 | 68.53 | 71.99 | **−3.46** | **서버 기본값** |
+| AV-SpeakerBench | 50.78 | 55.98 | **−5.20** | **서버 기본값** |
 
-Video-MME는 파싱 결함의 영향을 받습니다. 저장된 응답으로 재채점하면 **67.26**(격차 −2.93)입니다. 자세한 내용은 [qwen3_8_whisper.md](qwen3_8_whisper.md)를 참고하세요.
+원인 후보를 차례로 배제했습니다.
+
+| 후보 | 결과 |
+| --- | --- |
+| audio 미전달 | 배제 — `use_audio_in_video: true`에서 prompt +237 토큰, 응답이 실제 발화를 정확히 전사 |
+| vLLM 버전 드리프트 | 배제 — 리포트 커밋의 `uv.lock`도 0.24.0을 고정 |
+| HF dataset 변경 | 배제 — 최신 커밋이 2025-12-15로 리포트보다 7개월 전, 받은 리비전과 동일 |
+| 로컬 미디어 변경 | 배제 — 전부 2026-07-02 |
+| adapter · config 드리프트 | 배제 — `extra_body_for_mode`·`audio_visual_path`·`mode: av` 모두 초기 커밋부터 동일 |
+| `--moe-backend triton` | 배제 — 커널 수치 차이라면 나머지 3개도 흔들려야 하는데 ±0.5 이내 |
+| `--max-model-len` | 배제 — 미지정 시에도 vLLM이 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변 |
+| serve 시점 `mm-processor-kwargs` | 배제 — 저장소 이력에 존재하지 않음 |
+
+확인할 수 없는 것이 둘 남습니다: 원래 환경의 transformers 버전, 그리고 adapter의 재개 로직이 조건 변경 전 레코드를 그대로 집계했을 가능성입니다. 어느 수치가 틀렸다고 단정할 근거는 없으며, **비주얼 입력을 서버에 위임한 두 benchmark가 harness 밖의 변화에 노출되어 있다**는 것이 확인된 사실입니다.
+
+따라서 아래 비교는 **같은 날 같은 코드로 측정한 Qwen3-Omni 재현값**을 기준으로 합니다.
+
+### 최종 비교
+
+| Benchmark | E0 | E1 | ours best | Qwen3-Omni (재현) | 차이 |
+| --- | --- | --- | --- | --- | --- |
+| AV-SpeakerBench | 46.58 | **50.47** | 50.47 | 50.78 | **−0.31** |
+| WorldSense | 38.75 | **46.97** | 46.97 | 51.48 | −4.51 |
+| Video-MME (robust) | 67.26 | 67.26 | 67.26 | 69.67 | −2.41 |
+| **OmniVideoBench** | 37.60 | **41.70** | 41.70 | 41.10 | **+0.60** |
+| OmniDCBench F1 | **55.93** | 48.25 | 55.93 | 68.53 | −12.61 |
+
+Video-MME는 양쪽 모두 재채점 기준입니다. Qwen3-Omni는 장문 응답이 0건이어서 재채점해도 값이 바뀌지 않고, Qwen3.8-27B만 20%가 산문으로 답해 56.78 → 67.26으로 올라갑니다. 즉 파싱 결함은 한쪽만 깎습니다.
+
+총 19,712 샘플(E1+E0) · 94.5분 · 에러 0. 재현 런은 별도로 5종 116분.
 
 ### transcript의 기여는 benchmark에 따라 부호가 갈립니다
 
@@ -180,11 +209,21 @@ Video-MME는 파싱 결함의 영향을 받습니다. 저장된 응답으로 재
 
 ### 결론
 
-Qwen3.8-27B + Whisper cascade는 **Qwen3-Omni를 대체할 수준이 아닙니다.** 5종 중 1종(OmniVideoBench +0.50)만 앞서고, 나머지는 4.39~16.06점 뒤집니다.
+Qwen3.8-27B + Whisper cascade는 **Qwen3-Omni를 대체할 수준이 아닙니다.** 5종 중 1종(OmniVideoBench +0.60)만 앞서고, OmniDCBench에서 12.61점 뒤집니다.
 
-격차의 원인이 cascade 구조가 아니라는 점이 중요합니다. audio를 쓰지 않는 항목에서도 일관되게 밀립니다 — AV-SpeakerBench Visual-centric −4.72, WorldSense Recognition −5.23, Video-MME 전체(audio 미사용, 재채점 후에도) −2.93. 즉 **비주얼 이해력 자체의 격차**이며 ASR 품질을 올려서 메울 수 없습니다.
+다만 격차의 성격은 재현 기준으로 보면 초기 판단과 다릅니다.
 
-또한 Video-MME에서 Qwen3.8-27B는 프레임당 588 토큰(Qwen3-Omni는 192)을 받아 **비주얼 입력이 3배 많았음에도** 뒤졌습니다.
+| 항목 | ours | Qwen3-Omni | 차이 |
+| --- | --- | --- | --- |
+| AV-SpeakerBench Visual-centric | 51.87 | 50.41 | **+1.46** |
+| AV-SpeakerBench Speaker-centric | 50.68 | 50.20 | +0.48 |
+| AV-SpeakerBench Audio-centric | 49.63 | 51.49 | −1.86 |
+| WorldSense Recognition | 42.30 | 47.32 | −5.02 |
+| WorldSense Understanding | 47.96 | 53.03 | −5.07 |
+
+AV-SpeakerBench에서는 세 카테고리 모두 ±2 이내이고 Visual-centric은 오히려 앞섭니다. "audio 무관 항목에서도 일관되게 밀린다"는 진단은 이 benchmark에서는 성립하지 않습니다. 반면 WorldSense와 OmniDCBench에서는 격차가 분명하며, 특히 OmniDCBench는 transcript를 제거한 최선값(55.93)으로도 12.61점 뒤집니다.
+
+정리하면 **audio를 텍스트로 우회하는 것 자체는 MCQ에서 작동하지만, dense captioning처럼 timestamp 정렬이 지표의 핵심인 과제에서는 격차가 크고 transcript가 오히려 해롭습니다.**
 
 ## 세부 분석 항목
 

@@ -301,6 +301,22 @@ Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질�
 
 발화가 없는 클립에 존재하지 않는 정보가 주입되므로 cascade에 불리하게 작용합니다. `no_speech_threshold`, `hallucination_silence_threshold` 조정과 크레딧 패턴 후처리가 후보이며 아직 적용하지 않았습니다.
 
+## 서버 위임 frame sampling은 재현되지 않는다
+
+`configs/benchmarks/default.yaml`에서 AV-SpeakerBench와 OmniDCBench는 frame 수를 지정하지 않고 서버(모델 프로세서)의 기본 sampling에 맡깁니다. 같은 모델을 같은 코드로 다시 측정해 보면 이 두 benchmark만 리포트 수치와 어긋납니다.
+
+| Benchmark | 재현 | 리포트 | 차이 | frame sampling |
+| --- | --- | --- | --- | --- |
+| OmniVideoBench | 41.10 | 41.20 | −0.10 | 클라이언트 |
+| WorldSense | 51.48 | 51.36 | +0.12 | 클라이언트 |
+| Video-MME | 69.67 | 70.19 | −0.52 | 클라이언트 |
+| OmniDCBench F1 | 68.53 | 71.99 | −3.46 | **서버** |
+| AV-SpeakerBench | 50.78 | 55.98 | −5.20 | **서버** |
+
+vLLM 버전(lock이 0.24.0으로 고정), HF dataset(최신 커밋이 7개월 전), 로컬 미디어, adapter/config, `--moe-backend`, `--max-model-len`, serve 시점 `mm-processor-kwargs`를 모두 배제했습니다. `--max-model-len`을 지정하지 않아도 vLLM은 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변이라 frame 수가 바뀌지 않았습니다.
+
+즉 이 두 benchmark의 비주얼 입력은 harness가 고정하지 못하는 값에 달려 있습니다. **비교는 같은 시점에 측정한 값끼리만 유효합니다.** 서로 다른 날의 수치를 대조하려면 frame 수를 config에 명시해야 합니다 — 다만 그렇게 하면 기존 리포트 수치와의 비교가 끊어집니다.
+
 ## Whisper와 vLLM은 같은 GPU에 올리지 않는다
 
 두 단계를 시간축으로 분리해야 합니다. 한 번 겹쳐 돌렸다가 vLLM EngineCore가 죽었습니다.
