@@ -24,10 +24,9 @@ AAII bench에서 Qwen3.8-27B가 52점으로 GPT-5.6-Luna와 동급의 언어 성
 
 | # | 구성 | `audio_mode` | Config |
 | --- | --- | --- | --- |
-| E0 | Qwen3.8-27B (video only) | `none` | `configs/models/qwen3_8_27b.yaml` |
-| E1 | Qwen3.8-27B + Whisper | `asr_text` | `configs/models/qwen3_8_27b_whisper.yaml` |
+| E1 | Qwen3.8-27B + Whisper | `asr_text` (Video-MME는 `none`) | `configs/models/qwen3_8_27b_whisper.yaml` |
 
-E0는 audio 없이 돌린 baseline입니다. **E1 − E0 = ASR 채널이 실제로 기여한 양**이며, 이 폭이 작으면 cascade 자체가 답이 아니라는 신호입니다.
+`audio_mode: none`은 Video-MME에서 쓰이는 벤치마크 단위 값으로 남아 있습니다. audio를 전부 제거한 모델 단위 baseline은 측정하지 않습니다.
 
 ## 벤치마크별 audio 경로
 
@@ -149,10 +148,6 @@ bash scripts/serve_qwen3_8_27b.sh
 ### 3. 평가
 
 ```bash
-# E0 — audio 없이
-uv run omni-bench run --config configs/models/qwen3_8_27b.yaml
-
-# E1 — Whisper transcript 주입
 uv run omni-bench run --config configs/models/qwen3_8_27b_whisper.yaml
 ```
 

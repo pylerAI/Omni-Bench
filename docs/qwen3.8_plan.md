@@ -61,7 +61,7 @@ model config와 benchmark config가 `audio_mode`로 audio 처리를 지정합니
 
 ### benchmark별 audio 경로
 
-| Benchmark | 비주얼 입력 | audio 소스 | E1에서의 처리 |
+| Benchmark | 비주얼 입력 | audio 소스 | 처리 |
 | --- | --- | --- | --- |
 | AV-SpeakerBench | `video_path` (원본 영상) | 영상 내 audio track (`use_audio_in_video: true`) | ffmpeg demux 후 전사 |
 | OmniDCBench | `video_path` (원본 영상) | 영상 내 audio track (`use_audio_in_video: true`) | ffmpeg demux 후 전사 |
@@ -106,24 +106,20 @@ official Video-MME는 frame 외에 subtitle과 audio도 입력 modality로 규�
 
 전사는 평가 전 별도 배치로 수행합니다(GPU 4장 분산, 재개 가능). 평가 프로세스는 캐시만 읽습니다.
 
-## 실험 목록
+## 실험
 
-| # | 구성 | `audio_mode` | 대상 | 목적 |
+| # | 구성 | `audio_mode` | 대상 | Config |
 | --- | --- | --- | --- | --- |
-| E0 | Qwen3.8-27B | `none` | 5개 전체 | ASR 기여도 분리용 baseline |
-| E1 | Qwen3.8-27B + Whisper | `asr_text` (Video-MME는 `none`) | 5개 전체 | 메인 비교 대상 |
-| E2 | Qwen3.8-27B + Whisper + audio caption | `asr_text` | audio 의존 2종 | 비언어 audio 보강 효과 (선택) |
-| T1 | Qwen3.8-27B | — | `vllm bench throughput` | 기존 4모델과 동일 조건 처리량 |
+| E1 | Qwen3.8-27B + Whisper | `asr_text` (Video-MME는 `none`) | 5개 전체 | `configs/models/qwen3_8_27b_whisper.yaml` |
 
-E0 대비 E1의 상승폭이 ASR 채널의 실제 기여분입니다. 이 폭이 작으면 cascade 자체가 유효한 접근이 아니라는 신호로 읽습니다. E2는 E1이 audio 계열에서 밀릴 때만 진행합니다.
+ASR 배치 전사 설정은 `configs/asr/whisper_large_v3.yaml`입니다.
 
-Config:
+audio를 제거한 baseline(`audio_mode: none`)이나 audio caption 보조 채널은 측정하지 않습니다.
 
-| 실험 | Config |
-| --- | --- |
-| E0 | `configs/models/qwen3_8_27b.yaml` |
-| E1 | `configs/models/qwen3_8_27b_whisper.yaml` |
-| ASR 배치 | `configs/asr/whisper_large_v3.yaml` |
+- audio를 빼면 점수가 내려가는 것은 자명하고, 그 크기가 교체 판단을 바꾸지 않습니다. Video-MME는 애초에 두 조건의 입력이 동일해 중복입니다.
+- 비언어 audio(음악 · 효과음 · 화자 특성 · 발화 강도 · 피치)를 보강할 수 있는 보조 모델이 확보되어 있지 않습니다. 로컬에 있는 audio captioning / tagging 모델은 AudioCaps 도메인 캡션이나 AudioSet 라벨을 출력하므로 AV-SpeakerBench가 묻는 화자 속성에 답할 수 없습니다. 따라서 이 한계는 해결 대상이 아니라 **cascade 구조의 한계로 결론에 기록**합니다.
+
+Throughput은 별도로 측정하지 않습니다. 교체 판단에 필요한 비용 신호는 E1 런의 benchmark별 wall-clock과 `records.jsonl`의 `latency_s`로 확보합니다.
 
 ## Serving
 
@@ -142,8 +138,7 @@ dense 27B는 활성 파라미터가 MoE(active 3B) 대비 크므로, data parall
 ## 결과 저장 위치
 
 ```text
-results/qwen3.8-27b/<benchmark-name>/            E0
-results/qwen3.8-27b-whisper/<benchmark-name>/    E1
+results/qwen3.8-27b-whisper/<benchmark-name>/
 ```
 
 기존과 동일하게 `records.json`, `records.jsonl`, `summary.json`이 저장되고, benchmark별 추가 출력(Video-MME `official_results.json`, WorldSense `vlmeval_rating.json`, OmniDCBench `predictions.jsonl`)도 그대로 생성됩니다.
@@ -162,7 +157,6 @@ cache/asr/prepare_asr_report.json   배치 전사 요약 (config 스냅샷 포�
 
 | Model | AV-SpeakerBench Acc | WorldSense Acc | Video-MME Acc | OmniVideoBench Acc | OmniDCBench F1 | OmniDCBench mIoU |
 | --- | --- | --- | --- | --- | --- | --- |
-| Qwen3.8-27B (E0) | - | - | - | - | - | - |
 | Qwen3.8-27B + Whisper (E1) | - | - | - | - | - | - |
 | Qwen3-Omni-30B-A3B-Instruct | 55.98 | 51.36 | 70.19 | 41.20 | 71.99 | 77.68 |
 | Nemotron-3-Nano-Omni BF16 | 50.28 | 50.63 | 67.81 | 40.10 | 49.67 | 55.65 |
@@ -170,16 +164,6 @@ cache/asr/prepare_asr_report.json   배치 전사 요약 (config 스냅샷 포�
 | Nemotron-3-Nano-Omni FP8 | 49.63 | 50.63 | 67.56 | 38.70 | 46.97 | 52.40 |
 
 기존 4개 모델 수치는 2026-07-08 측정 결과(`report.html`)입니다.
-
-Throughput은 benchmark adapter가 아니라 `vllm bench throughput`(offline, input/output 길이 고정, text-generation 기준)으로 별도 측정합니다.
-
-| Model | Requests/sec | Output Tokens/sec | Total Tokens/sec |
-| --- | --- | --- | --- |
-| Qwen3.8-27B | - | - | - |
-| Nemotron-3-Nano-Omni NVFP4 | 99.77 | 51,081.8 | 114,934.2 |
-| Nemotron-3-Nano-Omni FP8 | 80.17 | 41,046.0 | 92,353.6 |
-| Qwen3-Omni-30B-A3B-Instruct | 56.81 | 29,088.2 | 65,448.5 |
-| Nemotron-3-Nano-Omni BF16 | 55.50 | 28,417.3 | 63,939.0 |
 
 ## 세부 분석 항목
 
@@ -197,7 +181,7 @@ cascade 구조의 한계가 드러날 지점을 benchmark 세부 축으로 확�
 
 | 리스크 | 대응 |
 | --- | --- |
-| 비언어 audio 손실 — 음악 · 효과음 · 화자 특성 · 발화 강도/피치는 ASR에 담기지 않음 | E2로 audio caption 보조 채널 추가. AV-SpeakerBench 세부 항목으로 확인 |
+| 비언어 audio 손실 — 음악 · 효과음 · 화자 특성 · 발화 강도/피치는 ASR에 담기지 않음 | 보강 수단이 없으므로 cascade의 구조적 한계로 결론에 기록. AV-SpeakerBench 세부 항목에서 손실 폭을 확인 |
 | 시간 정렬 손실 — transcript는 텍스트이므로 frame과의 동기가 약함 | `[mm:ss]` timestamp 유지. Temporal Localization · Event Sorting 항목으로 검증 |
 | vLLM이 `qwen3_5` 아키텍처를 미지원할 가능성 | 서빙 smoke test를 가장 먼저 수행. 미지원 시 vLLM 버전 업 또는 대안 backend 검토 |
 | dense 27B의 낮은 throughput으로 총 소요 시간 초과 | benchmark 우선순위(AV-SpeakerBench → OmniVideoBench → 나머지)로 순차 진행 |
@@ -209,7 +193,5 @@ cascade 구조의 한계가 드러날 지점을 benchmark 세부 축으로 확�
 1. `uv sync` · flash-attn wheel 설치
 2. Qwen3.8-27B vLLM 서빙 smoke test
 3. ASR 배치 전사 (`scripts/prepare_asr.py`, GPU 4장)
-4. E0 실행
-5. E1 실행
-6. T1 (`vllm bench throughput`) 측정
-7. 결과 표 작성 및 모델 교체 여부 판단
+4. E1 실행
+5. 결과 표 작성 및 모델 교체 여부 판단
