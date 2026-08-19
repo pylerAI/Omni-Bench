@@ -301,6 +301,25 @@ Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질�
 
 발화가 없는 클립에 존재하지 않는 정보가 주입되므로 cascade에 불리하게 작용합니다. `no_speech_threshold`, `hallucination_silence_threshold` 조정과 크레딧 패턴 후처리가 후보이며 아직 적용하지 않았습니다.
 
+## Whisper와 vLLM은 같은 GPU에 올리지 않는다
+
+두 단계를 시간축으로 분리해야 합니다. 한 번 겹쳐 돌렸다가 vLLM EngineCore가 죽었습니다.
+
+```
+EngineCore encountered a fatal error
+  shm_broadcast.py ... self._spin_condition.wait(timeout_ms=...)
+  TimeoutError
+Dumping scheduler stats: num_running_reqs=6
+```
+
+vLLM이 `gpu_memory_utilization 0.9`로 GPU 0을 165GB 점유한 상태에서 Whisper를 같은 GPU에 올렸고, 경합이 그 GPU의 vLLM 워커를 굶겨 shm dequeue 타임아웃이 났습니다. OOM은 아니었지만 결과는 엔진 사망이고, 이후 요청은 전부 `APIConnectionError`가 됩니다. Video-MME 2,700건 중 1,495건(long 전량, medium 594건)이 이렇게 실패했습니다.
+
+메모리 여유(183GB 중 18GB 남음)만 보면 들어갈 것처럼 보이지만, 문제는 메모리가 아니라 **SM 경합으로 인한 응답 지연**입니다.
+
+### 실패한 런에서 재개할 때
+
+adapter의 재개 로직은 레코드의 식별자만 봅니다(`question_id` 등). 에러 레코드도 "완료"로 취급하므로, 서버 사망으로 실패한 건은 **`records.jsonl`에서 에러 행을 지운 뒤** 재실행해야 다시 시도됩니다. 지우지 않으면 실패분이 그대로 남은 채 집계됩니다.
+
 ## 스모크 테스트
 
 의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio_mode 분기를 확인합니다.
