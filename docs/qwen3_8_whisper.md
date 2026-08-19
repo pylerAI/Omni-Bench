@@ -208,8 +208,10 @@ src/omni_bench/asr_client.py
 ## 캐시
 
 ```text
-cache/asr/<strategy>__<model-slug>/<key[:2]>/<key>.json
+/gpfs/public/artifacts/ail/omni-bench/cache/asr/<strategy>__<model-slug>/<key[:2]>/<key>.json
 ```
+
+저장소는 NFS(`/home/ail`) 위에 있어 이런 핫한 저장소를 두기에 맞지 않고, transcript는 특정 checkout보다 오래 남아야 하므로 gpfs에 둡니다.
 
 `key`는 `resolved path + size + mtime`의 SHA-1입니다. 상위 산출물(예: 재추출된 `.wav`)이 바뀌면 자동으로 무효화되고, 전략이나 Whisper 모델을 바꾸면 namespace가 달라져 서로 섞이지 않습니다.
 

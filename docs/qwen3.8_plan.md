@@ -104,7 +104,7 @@ official Video-MME는 frame 외에 subtitle과 audio도 입력 modality로 규�
 | 주입 위치 | benchmark official prompt **앞**. official prompt 문자열은 바이트 단위로 보존 |
 | 형식 | `[mm:ss] 발화` 줄 단위. 발화가 없으면 `Audio transcript: (no speech detected)` |
 | 예시 | benchmark별 실제 조립 결과는 [qwen3_8_whisper.md](qwen3_8_whisper.md#실제-조립되는-프롬프트) |
-| 캐시 | `cache/asr/<strategy>__<model>/` · media path + size + mtime 기준 |
+| 캐시 | `/gpfs/public/artifacts/ail/omni-bench/cache/asr/<strategy>__<model>/` · media path + size + mtime 기준 |
 
 전사는 평가 전 별도 배치로 수행합니다(GPU 4장 분산, 재개 가능). 평가 프로세스는 캐시만 읽습니다.
 
@@ -148,9 +148,10 @@ results/qwen3.8-27b-whisper/<benchmark-name>/
 ASR 산출물:
 
 ```text
-cache/asr/faster_whisper__Systran__faster-whisper-large-v3/
-  <key[:2]>/<key>.json          transcript (segment + timestamp + engine 메타)
-cache/asr/prepare_asr_report.json   배치 전사 요약 (config 스냅샷 포함)
+/gpfs/public/artifacts/ail/omni-bench/cache/asr/
+  faster_whisper__Systran__faster-whisper-large-v3/
+    <key[:2]>/<key>.json            transcript (segment + timestamp + engine 메타)
+  prepare_asr_report.json           배치 전사 요약 (config 스냅샷 포함)
 ```
 
 ## 전체 결과 요약 형식

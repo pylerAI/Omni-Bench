@@ -23,7 +23,7 @@ models:
           beam_size: 5
           vad_filter: true
           condition_on_previous_text: false
-      cache_dir: cache/asr
+      cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
       strict_cache: false
       with_timestamps: true
       max_chars: null

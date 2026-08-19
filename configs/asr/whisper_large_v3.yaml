@@ -13,7 +13,9 @@ asr:
       condition_on_previous_text: false
       # num_workers is set from --threads-per-gpu at runtime. Pin it here only
       # to override that.
-  cache_dir: cache/asr
+  # gpfs. The repo itself sits on NFS (/home/ail), which is the wrong place for
+  # a store this hot — and the transcripts outlive any one checkout.
+  cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
   strict_cache: false             # true = fail instead of transcribing inline
   with_timestamps: true
   max_chars: null
