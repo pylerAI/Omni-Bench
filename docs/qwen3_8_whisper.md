@@ -263,9 +263,37 @@ Whisper는 `transcribe`(원어 유지)와 `translate`(영어로 번역) 두 task
 | 항목 | 결과 |
 | --- | --- |
 | vLLM 아키텍처 지원 | vLLM 0.24.0이 `Qwen3_5ForConditionalGeneration`을 등록함 |
-| faster-whisper 실제 전사 | AV-SpeakerBench 클립 3건 성공. 모델 로드 포함 첫 건 87.5초, 이후 파일당 0.6~1.2초 |
-| 캐시 재조회 | 0.2ms (엔진 미호출) |
+| 서빙 | GPU 1장 6분, DP=4 11분에 기동. FlashInfer JIT용 `ninja`가 PATH에 없으면 가중치 로드 후 첫 샘플링 커널 빌드 시점에 실패 |
+| thinking | chat template이 `<think>`를 기본으로 염 — 껐다 (아래 참고) |
 | 프롬프트 조립 | WorldSense 실제 영상 1편으로 확인 — official prompt 바이트 보존 |
+| 캐시 재조회 | 0.2ms (엔진 미호출) |
+
+### ASR 배치 실측 (전량 전사 완료)
+
+GPU 4장 · 스레드 8 · faster-whisper large-v3 fp16. 오디오 **308.8시간**을 GPU 시간 **31.03시간**(RTF 10x)에 전사, 벽시계 약 40분. 실패 0건.
+
+| Dataset | 파일 | 발화 | 무발화 | 오디오 없음 | 세그먼트 | 오디오 | RTF | 비영어 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AV-SpeakerBench | 6,159 | 4,098 | 2,061 | 2,053 | 21,729 | 23.8h | 8x | 0% |
+| OmniVideoBench | 1,884 | 1,707 | 177 | 0 | 143,564 | 201.7h | 11x | 15% |
+| OmniDCBench | 1,122 | 980 | 142 | 2 | 22,825 | 18.1h | 7x | **89%** |
+| WorldSense | 1,662 | 1,524 | 138 | 0 | 43,316 | 65.2h | 9x | 3% |
+| 합계 | 10,827 | 8,309 | 2,518 | 2,055 | 231,434 | 308.8h | 10x | — |
+
+- AV-SpeakerBench의 "오디오 없음"은 데이터셋이 `visual_only/` 변종을 포함하기 때문입니다
+- **OmniDCBench는 89%가 중국어**입니다(zh 862 / en 99). 프롬프트는 영어이고 영어 캡션을 요구하므로, `transcribe`를 유지하면 모델이 중국어 transcript로 영어 캡션을 만들어야 합니다. Qwen3-Omni도 같은 조건이므로 공정성은 유지되지만 해석 시 알고 봐야 합니다
+- 크레딧 패턴 환각 의심 14건 / 발화 8,309건 (0.17%)
+
+### thinking 비활성화
+
+Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질문 실측:
+
+| 설정 | 응답 | 출력 토큰 |
+| --- | --- | --- |
+| 기본 (thinking ON) | `We need answer multiple choice... green blue red black. Correct B... </think>\n\nB` | 35 |
+| `enable_thinking: false` | `B` | 2 |
+
+켜두면 official parser가 추론 텍스트에 등장하는 선택지 문자열을 먼저 매칭할 위험이 있고, OmniDCBench의 JSON 배열 출력도 깨집니다. baseline인 Qwen3-Omni-30B-A3B-Instruct가 non-thinking인 점도 근거입니다. model config의 `extra_body.chat_template_kwargs`로 지정하므로 코드 변경은 없습니다.
 
 ### 알려진 문제 — Whisper 환각
 

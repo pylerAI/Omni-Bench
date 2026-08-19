@@ -121,7 +121,7 @@ audio를 제거한 baseline(`audio_mode: none`)이나 audio caption 보조 채�
 - audio를 빼면 점수가 내려가는 것은 자명하고, 그 크기가 교체 판단을 바꾸지 않습니다. Video-MME는 애초에 두 조건의 입력이 동일해 중복입니다.
 - 비언어 audio(음악 · 효과음 · 화자 특성 · 발화 강도 · 피치)를 보강할 수 있는 보조 모델이 확보되어 있지 않습니다. 로컬에 있는 audio captioning / tagging 모델은 AudioCaps 도메인 캡션이나 AudioSet 라벨을 출력하므로 AV-SpeakerBench가 묻는 화자 속성에 답할 수 없습니다. 따라서 이 한계는 해결 대상이 아니라 **cascade 구조의 한계로 결론에 기록**합니다.
 
-Throughput은 별도로 측정하지 않습니다. 교체 판단에 필요한 비용 신호는 E1 런의 benchmark별 wall-clock과 `records.jsonl`의 `latency_s`로 확보합니다.
+`vllm bench throughput`은 별도로 돌리지 않습니다. 교체 판단에 필요한 비용 신호는 E1 런이 benchmark별로 기록하는 `perf` 블록으로 확보합니다.
 
 ## Serving
 
@@ -143,7 +143,9 @@ dense 27B는 활성 파라미터가 MoE(active 3B) 대비 크므로, data parall
 results/qwen3.8-27b-whisper/<benchmark-name>/
 ```
 
-기존과 동일하게 `records.json`, `records.jsonl`, `summary.json`이 저장되고, benchmark별 추가 출력(Video-MME `official_results.json`, WorldSense `vlmeval_rating.json`, OmniDCBench `predictions.jsonl`)도 그대로 생성됩니다.
+기존과 동일하게 `records.json`, `records.jsonl`, `summary.json`이 저장됩니다. `summary.json`에는 benchmark별 처리량·레이턴시가 `perf` 블록으로 함께 기록됩니다 — `wall_s`, `samples_per_s`, `latency_s`(mean/p50/p90/p99/max), `prompt_tokens`·`completion_tokens` 분포, `*_tokens_per_s`. `wall_s`는 frame 디코딩과 transcript 조회까지 포함해 재실행 시간을 예측하는 값이고, `latency_s`는 서버 큐 대기가 섞여 같은 런 안에서만 비교합니다.
+
+ benchmark별 추가 출력(Video-MME `official_results.json`, WorldSense `vlmeval_rating.json`, OmniDCBench `predictions.jsonl`)도 그대로 생성됩니다.
 
 ASR 산출물:
 
