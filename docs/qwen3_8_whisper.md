@@ -320,6 +320,41 @@ vLLM이 `gpu_memory_utilization 0.9`로 GPU 0을 165GB 점유한 상태에서 Wh
 
 adapter의 재개 로직은 레코드의 식별자만 봅니다(`question_id` 등). 에러 레코드도 "완료"로 취급하므로, 서버 사망으로 실패한 건은 **`records.jsonl`에서 에러 행을 지운 뒤** 재실행해야 다시 시도됩니다. 지우지 않으면 실패분이 그대로 남은 채 집계됩니다.
 
+## Video-MME 파싱 결함
+
+Video-MME 2,700건 중 **540건(20%)에서 Qwen3.8-27B가 "letter only" 지시를 무시하고 산문으로 답합니다.**
+
+```
+Based on the video, the stages of human evolution are presented in
+chronological order. The first stage shown is **Dryopithecus**...
+```
+
+adapter의 `extract_answer`는 접두어를 제거한 뒤 `re.search(r"[ABCD]")`로 위치 무관하게 첫 A-D 문자를 뽑습니다. `Based`의 **B**가 걸립니다. **540건 중 539건이 `B`로 파싱**됐고, 정답 분포가 B 204 / C 146 / A 95 / D 95이므로 이 그룹의 정답률 37.96%는 "무조건 B"의 기대값(37.8%)과 사실상 같습니다 — 모델 성능이 아닙니다.
+
+`scripts/rescore_mcq.py`는 저장된 응답만으로 재채점합니다(추론 불필요). 명시적 답 표기(`answer is X`, `**X**`, `(X)`, 행 선두 `X.`)를 먼저 찾고, 없으면 단어 경계 기준 **마지막** 단독 A-D를 씁니다.
+
+| Benchmark | 장문 응답 | official | robust | 차이 |
+| --- | --- | --- | --- | --- |
+| Video-MME | 540 (20.0%) | 56.78 | **67.26** | **+10.48** |
+| WorldSense | 103 (3.2%) | 46.97 | 47.67 | +0.69 |
+| OmniVideoBench | 3 (0.3%) | 41.70 | 41.70 | 0.00 |
+| AV-SpeakerBench | 0 (0%) | 50.47 | 50.47 | 0.00 |
+
+AV-SpeakerBench가 정확히 동일하다는 점이 이것이 파서 일반의 문제가 아니라 특정 응답 형태에서만 발생함을 보여줍니다.
+
+기존 4개 omni 모델은 지시를 따라 단답을 냈으므로 이 함정에 걸리지 않았을 가능성이 큽니다. 즉 **결함이 신규 모델만 깎는 방향**으로 작동합니다. 두 수치를 함께 보고하고, 기존 모델의 저장된 응답이 남아 있으면 동일 기준으로 재채점해 비교하는 것이 가장 엄격합니다.
+
+## frame당 토큰이 모델마다 다르다
+
+`max_pixels: 602112`는 프레임당 면적 상한이지 토큰 상한이 아닙니다. 토큰 수는 모델의 patch/merge 설정으로 갈립니다.
+
+| Model | patch · merge | 602,112px 프레임당 토큰 |
+| --- | --- | --- |
+| Qwen3.8-27B | 16 · 2 | **588** |
+| Qwen3-Omni | 28px 그리드 | 192 |
+
+Video-MME에서 Qwen3.8-27B의 prompt는 평균 34,141 토큰이었습니다(프레임 64장 × 약 532). 즉 **비주얼 입력량이 동일하지 않고, 신규 모델이 3배 가까이 많이 받았습니다.** 그 조건에서도 뒤졌다는 점은 결론을 약화시키지 않습니다.
+
 ## 스모크 테스트
 
 의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio_mode 분기를 확인합니다.
