@@ -156,19 +156,35 @@ ASR 산출물:
   prepare_asr_report.json           배치 전사 요약 (config 스냅샷 포함)
 ```
 
-## 전체 결과 요약 형식
+## 결과 (2026-08-19 측정)
 
-값이 아직 계산되지 않은 metric은 `-`로 표시합니다.
+benchmark별 최선값 기준. E1 = Whisper transcript 주입, E0 = audio 제거. Video-MME는 benchmark 단위로 audio를 쓰지 않으므로 E0/E1이 동일합니다.
 
-| Model | AV-SpeakerBench Acc | WorldSense Acc | Video-MME Acc | OmniVideoBench Acc | OmniDCBench F1 | OmniDCBench mIoU |
+| Benchmark | E0 | E1 | E1−E0 | best | Qwen3-Omni | 격차 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Qwen3.8-27B + Whisper (E1) | - | - | - | - | - | - |
-| Qwen3-Omni-30B-A3B-Instruct | 55.98 | 51.36 | 70.19 | 41.20 | 71.99 | 77.68 |
-| Nemotron-3-Nano-Omni BF16 | 50.28 | 50.63 | 67.81 | 40.10 | 49.67 | 55.65 |
-| Nemotron-3-Nano-Omni NVFP4 | 49.94 | 51.10 | 66.48 | 38.30 | 58.04 | 64.82 |
-| Nemotron-3-Nano-Omni FP8 | 49.63 | 50.63 | 67.56 | 38.70 | 46.97 | 52.40 |
+| AV-SpeakerBench | 46.58 | **50.47** | +3.89 | 50.47 | 55.98 | −5.51 |
+| WorldSense | 38.75 | **46.97** | +8.22 | 46.97 | 51.36 | −4.39 |
+| Video-MME | 56.78 | 56.78 | 0 | 56.78 | 70.19 | −13.41 |
+| OmniVideoBench | 37.60 | **41.70** | +4.10 | 41.70 | 41.20 | **+0.50** |
+| OmniDCBench F1 | **55.93** | 48.25 | **−7.68** | 55.93 | 71.99 | −16.06 |
 
-기존 4개 모델 수치는 2026-07-08 측정 결과(`report.html`)입니다.
+기존 4개 모델 수치는 2026-07-08 측정 결과(`report.html`)입니다. 총 19,712 샘플 · 94.5분 · 에러 0.
+
+Video-MME는 파싱 결함의 영향을 받습니다. 저장된 응답으로 재채점하면 **67.26**(격차 −2.93)입니다. 자세한 내용은 [qwen3_8_whisper.md](qwen3_8_whisper.md)를 참고하세요.
+
+### transcript의 기여는 benchmark에 따라 부호가 갈립니다
+
+- MCQ 3종은 모두 양(+): WorldSense +8.22, OmniVideoBench +4.10, AV-SpeakerBench +3.89
+- **captioning 1종은 음(−): OmniDCBench −7.68.** 이 데이터셋은 audio의 89%가 중국어인데 영어 caption과 timestamp JSON을 요구합니다. Precision·Recall이 함께 7.7점씩 떨어져 매칭되는 구간 자체가 줄었습니다
+- 하위 항목 수준에서는 MCQ에서도 음수 구간이 있습니다. AV-SpeakerBench의 Speech Intensity −5.34, Activity Recognition −3.40 — audio의 비언어적 속성을 묻거나 순수 비주얼인 항목입니다. 반대로 Speech Recognition +16.42, Speaker Detection +13.58
+
+### 결론
+
+Qwen3.8-27B + Whisper cascade는 **Qwen3-Omni를 대체할 수준이 아닙니다.** 5종 중 1종(OmniVideoBench +0.50)만 앞서고, 나머지는 4.39~16.06점 뒤집니다.
+
+격차의 원인이 cascade 구조가 아니라는 점이 중요합니다. audio를 쓰지 않는 항목에서도 일관되게 밀립니다 — AV-SpeakerBench Visual-centric −4.72, WorldSense Recognition −5.23, Video-MME 전체(audio 미사용, 재채점 후에도) −2.93. 즉 **비주얼 이해력 자체의 격차**이며 ASR 품질을 올려서 메울 수 없습니다.
+
+또한 Video-MME에서 Qwen3.8-27B는 프레임당 588 토큰(Qwen3-Omni는 192)을 받아 **비주얼 입력이 3배 많았음에도** 뒤졌습니다.
 
 ## 세부 분석 항목
 

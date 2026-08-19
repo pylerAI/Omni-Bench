@@ -1,0 +1,179 @@
+{
+  "reference_2026_07_08": {
+    "qwen3-omni": {
+      "av_speakerbench": 55.98,
+      "worldsense": 51.36,
+      "videomme": 70.19,
+      "omnivideobench": 41.2,
+      "omnidcbench_f1": 71.99,
+      "omnidcbench_miou": 77.68
+    },
+    "nemotron-bf16": {
+      "av_speakerbench": 50.28,
+      "worldsense": 50.63,
+      "videomme": 67.81,
+      "omnivideobench": 40.1,
+      "omnidcbench_f1": 49.67,
+      "omnidcbench_miou": 55.65
+    },
+    "nemotron-nvfp4": {
+      "av_speakerbench": 49.94,
+      "worldsense": 51.1,
+      "videomme": 66.48,
+      "omnivideobench": 38.3,
+      "omnidcbench_f1": 58.04,
+      "omnidcbench_miou": 64.82
+    },
+    "nemotron-fp8": {
+      "av_speakerbench": 49.63,
+      "worldsense": 50.63,
+      "videomme": 67.56,
+      "omnivideobench": 38.7,
+      "omnidcbench_f1": 46.97,
+      "omnidcbench_miou": 52.4
+    }
+  },
+  "runs": {
+    "E1": {
+      "av_speakerbench": {
+        "perf": {
+          "samples": 3212,
+          "errors": 0,
+          "wall_min": 6.61,
+          "samples_per_s": 8.0985,
+          "prompt_tokens_per_s": 42517.2,
+          "output_tokens_per_s": 16.2,
+          "latency_p50": 2.56,
+          "latency_p90": 4.662,
+          "prompt_tokens_mean": 5250.038,
+          "completion_tokens_mean": 2.0
+        },
+        "accuracy": 50.47
+      },
+      "worldsense": {
+        "perf": {
+          "samples": 3172,
+          "errors": 0,
+          "wall_min": 4.26,
+          "samples_per_s": 12.4238,
+          "prompt_tokens_per_s": 31015.3,
+          "output_tokens_per_s": 480.6,
+          "latency_p50": 0.353,
+          "latency_p90": 0.832,
+          "prompt_tokens_mean": 2496.442,
+          "completion_tokens_mean": 38.681
+        },
+        "accuracy": 46.97
+      },
+      "videomme": {
+        "perf": {
+          "samples": 2700,
+          "errors": 0,
+          "wall_min": 22.41,
+          "samples_per_s": 2.0079,
+          "prompt_tokens_per_s": 68553.5,
+          "output_tokens_per_s": 313.8,
+          "latency_p50": 8.775,
+          "latency_p90": 26.396,
+          "prompt_tokens_mean": 34141.447,
+          "completion_tokens_mean": 156.303
+        },
+        "accuracy": 56.78
+      },
+      "omnivideobench": {
+        "perf": {
+          "samples": 1000,
+          "errors": 0,
+          "wall_min": 7.99,
+          "samples_per_s": 2.0856,
+          "prompt_tokens_per_s": 28935.4,
+          "output_tokens_per_s": 8.6,
+          "latency_p50": 7.267,
+          "latency_p90": 10.853,
+          "prompt_tokens_mean": 13873.677,
+          "completion_tokens_mean": 4.141
+        },
+        "accuracy": 41.7
+      },
+      "omnidcbench": {
+        "perf": {
+          "samples": 1122,
+          "errors": 0,
+          "wall_min": 16.5,
+          "samples_per_s": 1.1333,
+          "prompt_tokens_per_s": 14044.2,
+          "output_tokens_per_s": 976.2,
+          "latency_p50": 19.786,
+          "latency_p90": 28.771,
+          "prompt_tokens_mean": 12391.971,
+          "completion_tokens_mean": 861.382
+        },
+        "f1": 48.25,
+        "miou": 53.98
+      }
+    },
+    "E0": {
+      "av_speakerbench": {
+        "perf": {
+          "samples": 3212,
+          "errors": 0,
+          "wall_min": 6.85,
+          "samples_per_s": 7.819,
+          "prompt_tokens_per_s": 40246.2,
+          "output_tokens_per_s": 15.7,
+          "latency_p50": 2.602,
+          "latency_p90": 5.121,
+          "prompt_tokens_mean": 5147.199,
+          "completion_tokens_mean": 2.003
+        },
+        "accuracy": 46.58
+      },
+      "worldsense": {
+        "perf": {
+          "samples": 3172,
+          "errors": 0,
+          "wall_min": 3.37,
+          "samples_per_s": 15.6916,
+          "prompt_tokens_per_s": 29908.5,
+          "output_tokens_per_s": 533.3,
+          "latency_p50": 0.31,
+          "latency_p90": 0.596,
+          "prompt_tokens_mean": 1906.02,
+          "completion_tokens_mean": 33.989
+        },
+        "accuracy": 38.75
+      },
+      "omnivideobench": {
+        "perf": {
+          "samples": 1000,
+          "errors": 0,
+          "wall_min": 8.22,
+          "samples_per_s": 2.0277,
+          "prompt_tokens_per_s": 24769.2,
+          "output_tokens_per_s": 4.1,
+          "latency_p50": 7.782,
+          "latency_p90": 11.328,
+          "prompt_tokens_mean": 12215.254,
+          "completion_tokens_mean": 2.0
+        },
+        "accuracy": 37.6
+      },
+      "omnidcbench": {
+        "perf": {
+          "samples": 1122,
+          "errors": 0,
+          "wall_min": 18.29,
+          "samples_per_s": 1.0222,
+          "prompt_tokens_per_s": 12369.4,
+          "output_tokens_per_s": 939.3,
+          "latency_p50": 19.999,
+          "latency_p90": 28.132,
+          "prompt_tokens_mean": 12100.331,
+          "completion_tokens_mean": 918.852
+        },
+        "f1": 55.93,
+        "miou": 62.62
+      }
+    }
+  }
+}
