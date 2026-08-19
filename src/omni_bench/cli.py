@@ -5,7 +5,7 @@ import contextlib
 from typing import Iterable
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
-from omni_bench.asr_client import build_chat_client
+from omni_bench.asr_client import AsrCommandPool, build_chat_client, resolve_audio_mode
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
 from omni_bench.io import ensure_dir, write_json
 from omni_bench.report import render_report
@@ -49,14 +49,27 @@ def run(args: argparse.Namespace) -> None:
     models = _filter_by_name(cfg.models, args.model)
     benchmarks = [b for b in _filter_by_name(cfg.benchmarks, args.benchmark) if b.enabled]
     run_summary: dict[str, dict[str, object]] = {}
+    # Shared across benchmarks so an STT engine is loaded at most once per config.
+    asr_pool = AsrCommandPool()
 
     for model in models:
         context = serve_model(model, cfg.result_dir / "logs") if args.serve else contextlib.nullcontext()
         with context:
-            client = build_chat_client(model, default_timeout_s=cfg.request_timeout_s)
             model_summary: dict[str, object] = {}
             for benchmark in benchmarks:
                 adapter = get_adapter(benchmark.name)
+                # audio_mode is resolved per benchmark: a benchmark whose official
+                # protocol excludes audio stays audio-free even in asr_text mode.
+                client = build_chat_client(
+                    model,
+                    default_timeout_s=cfg.request_timeout_s,
+                    benchmark=benchmark,
+                    pool=asr_pool,
+                )
+                print(
+                    f"[{model.name}/{benchmark.name}] audio_mode="
+                    f"{resolve_audio_mode(model, benchmark)}"
+                )
                 output_dir = ensure_dir(
                     cfg.result_dir / model.name / (benchmark.result_subdir or benchmark.name)
                 )

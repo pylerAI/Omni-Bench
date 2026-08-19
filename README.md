@@ -4,7 +4,7 @@
 
 Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사하게 여러 benchmark를 하나의 runner에서 실행하고 결과를 통일된 위치에 저장하는 것을 목표로 합니다. 다만 범용 VLM evaluation toolkit이 아니라, **audio-video-text를 함께 처리하는 omni model과 omni benchmark 평가에 집중**합니다. 불필요한 범용 구현은 줄이고, vLLM serving 기반의 실험 반복과 benchmark별 official protocol 추적을 쉽게 하는 데 초점을 둡니다.
 
-[평가 계획](docs/plan.md) · [환경 설정](#환경-설정) · [Serving](#serving) · [평가 실행](#평가-실행) · [결과](#결과)
+[평가 계획](docs/plan.md) · [Qwen3.8-27B 계획](docs/qwen3.8_plan.md) · [환경 설정](#환경-설정) · [Serving](#serving) · [평가 실행](#평가-실행) · [결과](#결과)
 
 ## 목표
 
@@ -24,7 +24,7 @@ Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
-| Qwen3.8-27B + Whisper ([문서](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` |
+| Qwen3.8-27B + Whisper ([계획](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` |
 
 지원 benchmark:
 

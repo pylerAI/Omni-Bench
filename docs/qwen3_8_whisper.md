@@ -1,5 +1,7 @@
 # Qwen3.8-27B + Whisper (cascaded ASR)
 
+실험 계획과 결과 표는 [Qwen3.8-27B + Whisper 평가 계획](qwen3.8_plan.md)에 있습니다. 이 문서는 구현과 실행 방법을 다룹니다.
+
 ## 배경
 
 AAII bench에서 Qwen3.8-27B가 52점으로 GPT-5.6-Luna와 동급의 언어 성능을 보였습니다. 같은 모델의 멀티모달 능력이 omni 전용 모델(Qwen3-Omni, Nemotron-3-Nano-Omni)을 넘어서는지 확인하고, 넘어선다면 다운스트림 태스크의 백본 교체를 검토하는 것이 이 실험의 목적입니다.
@@ -39,7 +41,33 @@ adapter는 전부 `VllmChatClient.complete()` 하나만 호출하므로, audio �
 | OmniVideoBench | `video_url` (data URL) | `audio_path` (.wav) | 그대로 전사 |
 | Video-MME | `image_urls`만 | **없음** | **주입 없음 — 기존 4모델 런과 입력 동일** |
 
-Video-MME는 `audio_path`도 `video_path`도 넘기지 않으므로 client가 자동으로 통과시킵니다. 기존 4모델 수치(70.19 등)와 입력이 완전히 동일해 직접 비교가 성립합니다.
+Video-MME는 `audio_path`도 `video_path`도 넘기지 않으므로 client가 자동으로 통과시키고, 그 위에 `configs/benchmarks/default.yaml`에서 `audio_mode: none`으로 못박아 두었습니다. 기존 4모델 수치(70.19 등)와 입력이 완전히 동일해 직접 비교가 성립합니다.
+
+## audio_mode 우선순위
+
+`audio_mode`는 model config와 benchmark config 양쪽에서 지정할 수 있고, **benchmark 값이 model 값을 덮어씁니다**. audio 사용 여부는 모델의 성질이기도 하지만 benchmark protocol의 성질이기도 하기 때문입니다 — official 설정에서 audio가 빠진 benchmark는 모델이 `asr_text` 모드로 돌아도 audio-free로 유지되어야 합니다.
+
+```yaml
+# configs/models/qwen3_8_27b_whisper.yaml
+models:
+  - name: qwen3.8-27b-whisper
+    audio_mode: asr_text        # 모델 기본값
+
+# configs/benchmarks/default.yaml
+benchmarks:
+  - name: videomme
+    audio_mode: none            # 이 benchmark만 예외
+```
+
+benchmark config의 `asr:` 블록도 model의 `asr:` 블록 위에 병합됩니다. 필요한 항목만 적으면 되고 엔진 설정을 다시 쓸 필요가 없습니다.
+
+```yaml
+  - name: omnidcbench
+    asr:
+      max_chars: 4000           # 나머지는 model 값 상속
+```
+
+STT 엔진은 `AsrCommandPool`이 관리해 동일한 엔진 설정을 쓰는 benchmark 사이에서 **한 번만 로드**됩니다. prompt 포맷 옵션(`max_chars` 등)은 benchmark마다 달라도 엔진은 공유됩니다.
 
 ## 프롬프트 주입 형식
 

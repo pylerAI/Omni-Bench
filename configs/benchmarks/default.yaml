@@ -25,6 +25,12 @@ benchmarks:
     max_tokens: 8192
     temperature: 0
     use_subtitles: false
+    # Audio is out of scope for this benchmark as run here: the official protocol
+    # lists subtitles and audio as inputs, but this adapter sends sampled frames
+    # only and the dataset parquet ships no subtitle text. `audio_mode: none`
+    # pins that, so an ASR-cascade model gets the same inputs as the omni models
+    # rather than an extra channel they never had.
+    audio_mode: none
     # Frames are sampled client-side (the server ignores per-request video
     # sampling kwargs) and sent as images, like VLMEvalKit's Video-MME_64frame.
     max_frames: 64

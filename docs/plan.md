@@ -1,5 +1,7 @@
 # Omni-Bench 평가 계획
 
+후속 실험: [Qwen3.8-27B + Whisper 평가 계획](qwen3.8_plan.md)
+
 ## 목적
 
 Omni-Bench는 omni-modal model을 평가하기 위한 all-in-one evaluation pipeline을 제공합니다. 초기 비교 대상은 다음 두 모델입니다.
