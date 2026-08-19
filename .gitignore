@@ -11,3 +11,6 @@ results/
 .env.*
 
 CLAUDE.md
+
+# ASR transcript cache
+cache/

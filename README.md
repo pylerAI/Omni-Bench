@@ -24,6 +24,7 @@ Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
+| Qwen3.8-27B + Whisper ([문서](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` |
 
 지원 benchmark:
 
@@ -34,6 +35,24 @@ Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사
 | Video-MME | [docs/videomme.md](docs/videomme.md) | `videomme` |
 | OmniVideoBench | [docs/omnivideobench.md](docs/omnivideobench.md) | `omnivideobench` |
 | OmniDCBench | [docs/omnidcbench.md](docs/omnidcbench.md) | `omnidcbench` |
+
+## Audio modality
+
+Audio encoder가 없는 모델은 model config의 `audio_mode`로 audio 처리를 바꿉니다. adapter는 수정하지 않습니다.
+
+| `audio_mode` | 동작 |
+| --- | --- |
+| `native` (기본) | 모델에 audio를 그대로 전달 — omni 모델 |
+| `none` | audio를 제거 — vision-only baseline |
+| `asr_text` | Whisper로 전사해 프롬프트에 주입 — cascade |
+
+`asr_text`를 쓰기 전에 선행 전사를 돌려두면 평가가 Whisper에 블로킹되지 않습니다.
+
+```bash
+uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml
+```
+
+자세한 내용은 [docs/qwen3_8_whisper.md](docs/qwen3_8_whisper.md)를 참고하세요.
 
 ## 프로젝트 구조
 

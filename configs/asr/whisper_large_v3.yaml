@@ -1,0 +1,17 @@
+# Shared ASR settings. Referenced by model configs (audio_mode: asr_text) and by
+# scripts/prepare_asr.py.
+asr:
+  strategy:
+    name: faster_whisper          # see omni_bench.asr.strategies registry
+    model: Systran/faster-whisper-large-v3
+    device: cuda
+    compute_type: float16
+    language: null                # null = auto-detect per clip
+    options:
+      beam_size: 5
+      vad_filter: true
+      condition_on_previous_text: false
+  cache_dir: cache/asr
+  strict_cache: false             # true = fail instead of transcribing inline
+  with_timestamps: true
+  max_chars: null

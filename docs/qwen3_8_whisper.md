@@ -1,0 +1,135 @@
+# Qwen3.8-27B + Whisper (cascaded ASR)
+
+## 배경
+
+AAII bench에서 Qwen3.8-27B가 52점으로 GPT-5.6-Luna와 동급의 언어 성능을 보였습니다. 같은 모델의 멀티모달 능력이 omni 전용 모델(Qwen3-Omni, Nemotron-3-Nano-Omni)을 넘어서는지 확인하고, 넘어선다면 다운스트림 태스크의 백본 교체를 검토하는 것이 이 실험의 목적입니다.
+
+## 왜 cascade인가
+
+`Qwen3.8-27B`(`Qwen3_5ForConditionalGeneration`)는 vision + text 모델입니다. `image_token_id` · `video_token_id`는 있지만 **audio encoder가 없습니다**. omni 모델과 같은 벤치마크로 비교하려면 audio를 다른 경로로 넣어야 하므로, Whisper로 전사한 텍스트를 프롬프트에 주입합니다.
+
+따라서 이 실험은 **native omni vs cascaded VLM + ASR** 의 비교입니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 아키텍처 | `Qwen3_5ForConditionalGeneration` (`model_type: qwen3_5`) |
+| text 백본 | 64층 하이브리드 (linear attention 3 : full attention 1) · hidden 5120 · GQA 24/4 |
+| 컨텍스트 | 262,144 (mRoPE interleaved) |
+| vision tower | 27층 · hidden 1152 · patch 16 |
+| audio | **없음** — Whisper cascade로 대체 |
+
+## 실험 구성
+
+| # | 구성 | `audio_mode` | Config |
+| --- | --- | --- | --- |
+| E0 | Qwen3.8-27B (video only) | `none` | `configs/models/qwen3_8_27b.yaml` |
+| E1 | Qwen3.8-27B + Whisper | `asr_text` | `configs/models/qwen3_8_27b_whisper.yaml` |
+
+E0는 audio 없이 돌린 baseline입니다. **E1 − E0 = ASR 채널이 실제로 기여한 양**이며, 이 폭이 작으면 cascade 자체가 답이 아니라는 신호입니다.
+
+## 벤치마크별 audio 경로
+
+adapter는 전부 `VllmChatClient.complete()` 하나만 호출하므로, audio 처리는 client 계층에서만 교체됩니다. **adapter 코드는 수정하지 않았습니다.**
+
+| Benchmark | 비주얼 | audio 소스 | cascade 처리 |
+| --- | --- | --- | --- |
+| AV-SpeakerBench | `video_path` | 영상 컨테이너 내 오디오 트랙 | ffmpeg로 demux 후 전사 |
+| OmniDCBench | `video_path` + `use_audio_in_video` | 영상 컨테이너 내 오디오 트랙 | ffmpeg로 demux 후 전사 · 플래그는 false로 강제 |
+| WorldSense | `image_urls` (프레임) | `audio_path` (.wav) | 그대로 전사 |
+| OmniVideoBench | `video_url` (data URL) | `audio_path` (.wav) | 그대로 전사 |
+| Video-MME | `image_urls`만 | **없음** | **주입 없음 — 기존 4모델 런과 입력 동일** |
+
+Video-MME는 `audio_path`도 `video_path`도 넘기지 않으므로 client가 자동으로 통과시킵니다. 기존 4모델 수치(70.19 등)와 입력이 완전히 동일해 직접 비교가 성립합니다.
+
+## 프롬프트 주입 형식
+
+transcript 블록을 벤치마크 official prompt **앞**에 붙입니다. official prompt 문자열 자체는 바이트 단위로 보존되므로 official parser가 그대로 동작합니다.
+
+```text
+Audio transcript of the media (speech recognised automatically):
+[00:03] first utterance
+[00:11] second utterance
+
+<benchmark official prompt>
+```
+
+- 오디오 트랙이 없거나 발화가 없으면 `Audio transcript: (no speech detected)` 한 줄로 대체됩니다.
+- `max_chars`를 설정하면 앞부분을 잘라내고 `...(truncated)...`를 표시합니다.
+
+## 아키텍처
+
+```text
+src/omni_bench/asr/
+  schema.py      TranscriptionRequest / Transcription — 모든 커맨드·전략의 공통 입출력 스키마
+  strategies.py  SttStrategy ABC + 레지스트리 (스트래티지 패턴)
+  audio.py       ffmpeg demux · 오디오 트랙 유무 판정
+  cache.py       media 식별자 기반 transcript 디스크 캐시
+  commands.py    Command ABC · TranscribeCommand · BatchTranscribeCommand (커맨드 패턴)
+  format.py      Transcription -> 프롬프트 블록
+src/omni_bench/asr_client.py
+  NoAudioChatClient   audio_mode: none
+  AsrTextChatClient   audio_mode: asr_text
+  build_chat_client   config -> client 팩토리
+```
+
+**스트래티지 패턴** — STT 엔진은 `SttStrategy` 하나의 인터페이스로 교체됩니다. 커맨드는 어떤 엔진이 도는지 알지 못합니다.
+
+| 전략 이름 | 엔진 | 용도 |
+| --- | --- | --- |
+| `faster_whisper` | CTranslate2 | **기본** — 대량 오프라인 전사에 가장 빠름 |
+| `transformers_whisper` | HF pipeline | 레퍼런스 대조용 |
+
+새 엔진은 `SttStrategy`를 상속하고 `@register_strategy("이름")`을 붙이면 등록됩니다.
+
+**커맨드 패턴** — 모든 전사는 `TranscriptionRequest`를 받아 `Transcription`을 돌려줍니다. 캐시를 아는 곳은 커맨드뿐이며, 커맨드가 만드는 JSON이 디스크 캐시 포맷이자 후속 분석 스크립트의 계약입니다.
+
+## 캐시
+
+```text
+cache/asr/<strategy>__<model-slug>/<key[:2]>/<key>.json
+```
+
+`key`는 `resolved path + size + mtime`의 SHA-1입니다. 상위 산출물(예: 재추출된 `.wav`)이 바뀌면 자동으로 무효화되고, 전략이나 Whisper 모델을 바꾸면 namespace가 달라져 서로 섞이지 않습니다.
+
+## 실행
+
+### 1. 선행 전사 (권장)
+
+```bash
+uv run python scripts/prepare_asr.py \
+  --asr-config configs/asr/whisper_large_v3.yaml \
+  --gpus 0,1,2,3 --threads-per-gpu 2
+```
+
+GPU당 워커 프로세스 1개, 프로세스당 스레드 풀로 병렬 처리합니다. 캐시된 파일은 건너뛰므로 **중단 후 재개 가능**합니다. 결과 요약은 `cache/asr/prepare_asr_report.json`에 저장됩니다.
+
+주요 인자:
+
+| 인자 | 설명 |
+| --- | --- |
+| `--benchmark` | 특정 벤치마크만. 반복 지정 가능 |
+| `--media-root` | 추가 디렉터리/파일 |
+| `--strategy` · `--model` · `--language` | config 값 덮어쓰기 |
+| `--dry-run` | 대상 파일만 세어보고 종료 |
+
+### 2. 서빙
+
+```bash
+bash scripts/serve_qwen3_8_27b.sh
+```
+
+### 3. 평가
+
+```bash
+# E0 — audio 없이
+uv run omni-bench run --config configs/models/qwen3_8_27b.yaml
+
+# E1 — Whisper transcript 주입
+uv run omni-bench run --config configs/models/qwen3_8_27b_whisper.yaml
+```
+
+## 캐시 미스 동작
+
+기본값은 `strict_cache: false` 로, 캐시에 없으면 평가 프로세스가 그 자리에서 전사합니다(Whisper 모델은 최초 필요 시점에 1회만 로드). 재현성을 위해 선행 전사를 강제하려면 config에서 `strict_cache: true`로 두면 캐시 미스가 에러가 됩니다.
+
+WorldSense와 OmniVideoBench는 adapter의 전처리 단계에서 `.wav`를 생성하므로, 그 전처리 전에 `prepare_asr.py`를 돌리면 해당 파일들이 아직 없습니다. 두 벤치마크는 첫 런에서 인라인 전사로 채워지거나, 전처리를 한 번 돌린 뒤 `prepare_asr.py`를 재실행하면 됩니다.

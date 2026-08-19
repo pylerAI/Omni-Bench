@@ -5,7 +5,7 @@ import contextlib
 from typing import Iterable
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
-from omni_bench.client import VllmChatClient
+from omni_bench.asr_client import build_chat_client
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
 from omni_bench.io import ensure_dir, write_json
 from omni_bench.report import render_report
@@ -53,7 +53,7 @@ def run(args: argparse.Namespace) -> None:
     for model in models:
         context = serve_model(model, cfg.result_dir / "logs") if args.serve else contextlib.nullcontext()
         with context:
-            client = VllmChatClient(model, default_timeout_s=cfg.request_timeout_s)
+            client = build_chat_client(model, default_timeout_s=cfg.request_timeout_s)
             model_summary: dict[str, object] = {}
             for benchmark in benchmarks:
                 adapter = get_adapter(benchmark.name)
