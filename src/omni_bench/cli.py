@@ -87,7 +87,7 @@ def run(args: argparse.Namespace) -> None:
                 # same throughput and latency fields.
                 if isinstance(summary, dict):
                     summary["perf"] = summarize_perf(
-                        output_dir / "records.jsonl",
+                        output_dir,
                         wall_s=wall_s,
                         concurrency=benchmark.extra.get("concurrency")
                         or benchmark.extra.get("max_workers"),

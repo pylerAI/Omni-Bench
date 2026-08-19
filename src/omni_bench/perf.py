@@ -45,10 +45,13 @@ def _stats(values: list[float]) -> dict[str, Any] | None:
     }
 
 
-def read_records(records_path: str | Path) -> list[dict[str, Any]]:
-    path = Path(records_path)
-    if not path.exists():
-        return []
+#: Adapters do not agree on a record filename: most append ``records.jsonl`` as
+#: they go, OmniDCBench writes ``records.json`` plus ``predictions.jsonl`` at the
+#: end. Tried in order so perf covers all five.
+RECORD_FILENAMES = ("records.jsonl", "records.json", "predictions.jsonl")
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -56,10 +59,42 @@ def read_records(records_path: str | Path) -> list[dict[str, Any]]:
             if not line:
                 continue
             try:
-                records.append(json.loads(line))
+                parsed = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if isinstance(parsed, dict):
+                records.append(parsed)
     return records
+
+
+def _read_json_array(path: Path) -> list[dict[str, Any]]:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            parsed = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    return []
+
+
+def read_records(records_path: str | Path) -> list[dict[str, Any]]:
+    """Records from a file, or from the first known filename under a directory."""
+    path = Path(records_path)
+    candidates = (
+        [path / name for name in RECORD_FILENAMES] if path.is_dir() else [path]
+    )
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        records = (
+            _read_json_array(candidate)
+            if candidate.suffix == ".json"
+            else _read_jsonl(candidate)
+        )
+        if records:
+            return records
+    return []
 
 
 def summarize_perf(
