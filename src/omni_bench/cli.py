@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import time
 from typing import Iterable
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
 from omni_bench.asr_client import AsrCommandPool, build_chat_client, resolve_audio_mode
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
 from omni_bench.io import ensure_dir, write_json
+from omni_bench.perf import summarize_perf
 from omni_bench.report import render_report
 from omni_bench.serving import serve_model, vllm_command
 
@@ -73,12 +75,32 @@ def run(args: argparse.Namespace) -> None:
                 output_dir = ensure_dir(
                     cfg.result_dir / model.name / (benchmark.result_subdir or benchmark.name)
                 )
-                model_summary[benchmark.name] = adapter.run(
+                started = time.perf_counter()
+                summary = adapter.run(
                     benchmark=benchmark,
                     model=model,
                     client=client,
                     output_dir=output_dir,
                 )
+                wall_s = time.perf_counter() - started
+                # Timed here rather than in each adapter, so all five report the
+                # same throughput and latency fields.
+                if isinstance(summary, dict):
+                    summary["perf"] = summarize_perf(
+                        output_dir / "records.jsonl",
+                        wall_s=wall_s,
+                        concurrency=benchmark.extra.get("concurrency")
+                        or benchmark.extra.get("max_workers"),
+                    )
+                    write_json(output_dir / "summary.json", summary)
+                    perf = summary["perf"]
+                    print(
+                        f"[{model.name}/{benchmark.name}] {perf['samples']} samples in "
+                        f"{perf['wall_min']}min · {perf['samples_per_s']}/s · "
+                        f"latency p50 {(perf['latency_s'] or {}).get('p50')}s "
+                        f"p90 {(perf['latency_s'] or {}).get('p90')}s · errors {perf['errors']}"
+                    )
+                model_summary[benchmark.name] = summary
             run_summary[model.name] = model_summary
 
     ensure_dir(cfg.result_dir)

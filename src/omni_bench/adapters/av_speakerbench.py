@@ -71,6 +71,9 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "parsed_answer": parsed,
                 "is_correct": parsed == row.get("answer"),
                 "latency_s": completion.latency_s,
+                "prompt_tokens": completion.prompt_tokens,
+                "completion_tokens": completion.completion_tokens,
+                "total_tokens": completion.total_tokens,
                 "media_path": str(media_path),
             }
 
