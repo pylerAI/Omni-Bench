@@ -151,6 +151,18 @@ bash scripts/serve_qwen3_8_27b.sh
 uv run omni-bench run --config configs/models/qwen3_8_27b_whisper.yaml
 ```
 
+## 스모크 테스트
+
+의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio_mode 분기를 확인합니다.
+
+```bash
+python3 tests/smoke_asr.py       # 전략 레지스트리 · 캐시 · demux · 배치 · 포맷
+python3 tests/smoke_client.py    # audio_mode 3종 동작 · 프롬프트 주입 위치
+python3 tests/smoke_override.py  # benchmark 오버라이드 · asr 병합 · 엔진 풀 공유
+```
+
+실제 Whisper 가중치와 vLLM 서버를 쓰는 경로는 별도로 확인해야 합니다.
+
 ## 캐시 미스 동작
 
 기본값은 `strict_cache: false` 로, 캐시에 없으면 평가 프로세스가 그 자리에서 전사합니다(Whisper 모델은 최초 필요 시점에 1회만 로드). 재현성을 위해 선행 전사를 강제하려면 config에서 `strict_cache: true`로 두면 캐시 미스가 에러가 됩니다.

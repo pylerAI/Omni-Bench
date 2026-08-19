@@ -11,6 +11,8 @@ asr:
       beam_size: 5
       vad_filter: true
       condition_on_previous_text: false
+      # num_workers is set from --threads-per-gpu at runtime. Pin it here only
+      # to override that.
   cache_dir: cache/asr
   strict_cache: false             # true = fail instead of transcribing inline
   with_timestamps: true

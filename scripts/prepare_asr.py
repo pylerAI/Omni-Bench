@@ -66,7 +66,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark", action="append", help="Benchmark name. Repeatable. Default: all with media.")
     parser.add_argument("--media-root", action="append", type=Path, help="Extra directory or file to transcribe.")
     parser.add_argument("--gpus", default=None, help="Comma-separated GPU indices. Default: all visible.")
-    parser.add_argument("--threads-per-gpu", type=int, default=2, help="Concurrent transcriptions per GPU.")
+    parser.add_argument(
+        "--threads-per-gpu",
+        type=int,
+        default=8,
+        help="Concurrent transcriptions per GPU. Also sets CTranslate2 num_workers "
+        "unless the config pins it, since without that the calls serialize inside "
+        "the model and the threads buy nothing.",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Cap the number of files (debugging).")
     parser.add_argument("--cache-dir", type=Path, default=None, help="Override the ASR cache directory.")
     parser.add_argument("--model", default=None, help="Override the STT model id/path.")
@@ -153,6 +160,9 @@ def run_shard(payload: tuple[Shard, dict[str, Any], int]) -> dict[str, Any]:
     shard_spec, settings_raw, threads = payload
     settings = AsrSettings.from_dict(settings_raw)
     settings.strategy.device_index = shard_spec.gpu
+    # CTranslate2 serializes concurrent transcribe() calls unless the model was
+    # built with num_workers > 1, so the thread pool alone would not parallelize.
+    settings.strategy.options.setdefault("num_workers", threads)
 
     strategy = build_strategy(settings.strategy)
     cache = build_cache(settings, strategy)
