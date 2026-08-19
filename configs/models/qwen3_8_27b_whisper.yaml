@@ -12,6 +12,15 @@ models:
     weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
     base_url: http://127.0.0.1:8000/v1
     audio_mode: asr_text
+    # Qwen3.8-27B's chat template opens <think> by default. Left on, the reply
+    # carries the reasoning trace ahead of the answer, and the benchmarks'
+    # official parsers take the first A-D match they see — the trace itself
+    # names the options, so it mis-parses. It also breaks OmniDCBench, which
+    # expects a bare JSON array, and costs ~17x the output tokens.
+    # Off also matches the baseline: Qwen3-Omni-30B-A3B-Instruct is non-thinking.
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
     asr:
       strategy:
         name: faster_whisper
