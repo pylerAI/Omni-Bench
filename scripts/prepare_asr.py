@@ -42,9 +42,19 @@ from omni_bench.config import DEFAULT_BENCHMARK_CONFIG  # noqa: E402
 #: audio, so it stays identical to the native-omni runs.
 MEDIA_ROOT_KEYS: dict[str, tuple[str, ...]] = {
     "av_speakerbench": ("data_path",),
-    "omnidcbench": ("video_dir", "data_path"),
+    "omnidcbench": ("video_dir",),
     "omnivideobench": ("video_dir", "preprocess_cache_dir"),
-    "worldsense": ("video_dir", "audio_cache_dir"),
+    "worldsense": ("video_dir", "preprocess_cache_dir"),
+}
+
+#: WorldSense and OmniVideoBench do not hand the client the original video: their
+#: adapters demux audio to a preprocess cache first and pass that ``.wav``. The
+#: transcript cache is keyed by path, so transcribing only the originals leaves
+#: those lookups missing. When the config does not name the directory, fall back
+#: to the adapter's own default so the enumeration finds it.
+PREPROCESS_CACHE_DEFAULTS: dict[str, tuple[str, str]] = {
+    "worldsense": ("data_path", "preprocess_cache"),
+    "omnivideobench": ("video_dir", "preprocess_cache"),
 }
 
 
@@ -112,10 +122,29 @@ def benchmark_media_roots(benchmark_config: Path, names: list[str] | None) -> li
             continue
         if names and name not in names:
             continue
+        seen: set[Path] = set()
         for key in MEDIA_ROOT_KEYS[name]:
             value = item.get(key)
             if value:
-                roots.append(Path(str(value)).expanduser())
+                path = Path(str(value)).expanduser()
+                if path not in seen:
+                    seen.add(path)
+                    roots.append(path)
+
+        base_key, subdir = PREPROCESS_CACHE_DEFAULTS.get(name, (None, None))
+        if base_key and not item.get("preprocess_cache_dir"):
+            base = item.get(base_key)
+            if base:
+                derived = Path(str(base)).expanduser() / subdir
+                if derived not in seen:
+                    roots.append(derived)
+                    if not derived.exists():
+                        print(
+                            f"  note: {name} demuxes audio into {derived} at eval time; "
+                            "it does not exist yet, so run the benchmark once (or "
+                            "pre-materialise it) and re-run this script, otherwise "
+                            "those transcript lookups will miss."
+                        )
     return roots
 
 
