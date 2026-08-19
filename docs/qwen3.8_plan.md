@@ -98,6 +98,7 @@ official Video-MME는 frame 외에 subtitle과 audio도 입력 modality로 규�
 | --- | --- |
 | 엔진 | faster-whisper (CTranslate2) · `Systran/faster-whisper-large-v3` |
 | compute type | float16 |
+| task | `transcribe` (원어 유지). `translate`는 omni 모델에 없는 번역 단계를 cascade에만 주게 되어 사용하지 않음 |
 | language | 자동 감지 |
 | 옵션 | `beam_size: 5` · `vad_filter: true` · `condition_on_previous_text: false` |
 | 주입 위치 | benchmark official prompt **앞**. official prompt 문자열은 바이트 단위로 보존 |
@@ -184,7 +185,8 @@ cascade 구조의 한계가 드러날 지점을 benchmark 세부 축으로 확�
 | --- | --- |
 | 비언어 audio 손실 — 음악 · 효과음 · 화자 특성 · 발화 강도/피치는 ASR에 담기지 않음 | 보강 수단이 없으므로 cascade의 구조적 한계로 결론에 기록. AV-SpeakerBench 세부 항목에서 손실 폭을 확인 |
 | 시간 정렬 손실 — transcript는 텍스트이므로 frame과의 동기가 약함 | `[mm:ss]` timestamp 유지. Temporal Localization · Event Sorting 항목으로 검증 |
-| vLLM이 `qwen3_5` 아키텍처를 미지원할 가능성 | 서빙 smoke test를 가장 먼저 수행. 미지원 시 vLLM 버전 업 또는 대안 backend 검토 |
+| ~~vLLM이 `qwen3_5` 아키텍처를 미지원할 가능성~~ | **해소** — vLLM 0.24.0이 `Qwen3_5ForConditionalGeneration`을 등록 |
+| Whisper 환각 — 발화 없는 클립에서 자막 크레딧 패턴 출력 | `vad_filter`만으로는 부족함을 확인. `no_speech_threshold` · `hallucination_silence_threshold` 조정과 패턴 후처리 검토 |
 | dense 27B의 낮은 throughput으로 총 소요 시간 초과 | benchmark 우선순위(AV-SpeakerBench → OmniVideoBench → 나머지)로 순차 진행 |
 | prompt 길이 증가 — transcript 삽입으로 입력 token 증가 | 262k context로 여유. 처리량 비교 시 입력 길이 차이를 명시 |
 | 서버 위임 benchmark의 모델 간 frame 수 차이 | `prompt_tokens` 비교로 정량화해 결과와 함께 기록 |

@@ -246,6 +246,31 @@ bash scripts/serve_qwen3_8_27b.sh
 uv run omni-bench run --config configs/models/qwen3_8_27b_whisper.yaml
 ```
 
+## ASR task — `transcribe` 고정
+
+Whisper는 `transcribe`(원어 유지)와 `translate`(영어로 번역) 두 task를 지원합니다. faster-whisper 기본값이 `transcribe`이고, 이 프로젝트는 그 기본값을 그대로 씁니다.
+
+`translate`를 쓰지 않는 이유는 공정성입니다. omni 모델은 오디오를 원어로 듣고 번역 단계가 없으므로, cascade에만 번역을 붙이면 비교 대상에 없는 처리 단계를 추가하는 셈이 됩니다. 벤치마크 질문이 영어라 `translate`가 cascade에 유리할 수 있다는 점이 오히려 이 선택의 근거입니다.
+
+바꿀 필요가 생기면 config의 `options`에 `task: translate`를 넣으면 됩니다. `**options`로 그대로 전달되므로 코드 수정은 필요하지 않습니다.
+
+전사된 클립의 `language`와 `language_probability`는 캐시 JSON에 파일별로 남으므로, 배치 종료 후 비영어 비율을 집계해 이 선택의 영향 범위를 확인할 수 있습니다.
+
+## 검증 상태
+
+| 항목 | 결과 |
+| --- | --- |
+| vLLM 아키텍처 지원 | vLLM 0.24.0이 `Qwen3_5ForConditionalGeneration`을 등록함 |
+| faster-whisper 실제 전사 | AV-SpeakerBench 클립 3건 성공. 모델 로드 포함 첫 건 87.5초, 이후 파일당 0.6~1.2초 |
+| 캐시 재조회 | 0.2ms (엔진 미호출) |
+| 프롬프트 조립 | WorldSense 실제 영상 1편으로 확인 — official prompt 바이트 보존 |
+
+### 알려진 문제 — Whisper 환각
+
+발화가 없는 클립에서 Whisper가 자막 크레딧 패턴을 출력하는 경우가 있습니다. `audio_class: ['Music']`인 WorldSense 영상(`dvOkwKAs`, 60초 고쟁 연주)에서 `vad_filter: true` 상태로도 `© transcript Emily Beynon`이 나왔습니다.
+
+발화가 없는 클립에 존재하지 않는 정보가 주입되므로 cascade에 불리하게 작용합니다. `no_speech_threshold`, `hallucination_silence_threshold` 조정과 크레딧 패턴 후처리가 후보이며 아직 적용하지 않았습니다.
+
 ## 스모크 테스트
 
 의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio_mode 분기를 확인합니다.
