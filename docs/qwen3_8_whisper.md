@@ -68,20 +68,115 @@ benchmark config의 `asr:` 블록도 model의 `asr:` 블록 위에 병합됩니�
 
 STT 엔진은 `AsrCommandPool`이 관리해 동일한 엔진 설정을 쓰는 benchmark 사이에서 **한 번만 로드**됩니다. prompt 포맷 옵션(`max_chars` 등)은 benchmark마다 달라도 엔진은 공유됩니다.
 
-## 프롬프트 주입 형식
+## 실제 조립되는 프롬프트
 
-transcript 블록을 벤치마크 official prompt **앞**에 붙입니다. official prompt 문자열 자체는 바이트 단위로 보존되므로 official parser가 그대로 동작합니다.
+`AsrTextChatClient`는 transcript 블록을 official prompt **앞**에 붙이고 둘 사이에 빈 줄 하나를 넣습니다. official prompt 문자열은 바이트 단위로 그대로 남아 official parser가 영향을 받지 않습니다.
+
+아래는 15초 클립에 발화 3개가 잡힌 경우의 예시입니다. transcript 블록은 모든 벤치마크에서 동일하고, 그 아래 official prompt만 벤치마크마다 다릅니다.
+
+### AV-SpeakerBench
+미디어 파트: `video_url` (원본 영상 · 서버 기본 frame 샘플링)
 
 ```text
 Audio transcript of the media (speech recognised automatically):
-[00:03] first utterance
-[00:11] second utterance
+[00:01] So the first thing you want to do is preheat the oven.
+[00:05] Meanwhile, mix the flour and the sugar together.
+[00:11] You'll hear it start to sizzle right about now.
 
-<benchmark official prompt>
+Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.
+How many people speak in the video?
+A. one
+B. two
+C. three
+D. four
+The best answer is:
 ```
 
-- 오디오 트랙이 없거나 발화가 없으면 `Audio transcript: (no speech detected)` 한 줄로 대체됩니다.
-- `max_chars`를 설정하면 앞부분을 잘라내고 `...(truncated)...`를 표시합니다.
+### WorldSense
+미디어 파트: `image_url` × 8 (JPEG data URI)
+
+```text
+Audio transcript of the media (speech recognised automatically):
+[00:01] So the first thing you want to do is preheat the oven.
+[00:05] Meanwhile, mix the flour and the sugar together.
+[00:11] You'll hear it start to sizzle right about now.
+
+These are the frames of a video and the corresponding audio. Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.
+Question: What is the speaker preparing?
+A. bread
+B. soup
+C. salad
+D. cake
+Answer: 
+```
+
+### OmniVideoBench
+미디어 파트: `video_url` (2.0 fps · 최대 120장 data URI) · system prompt 별도
+
+```text
+Audio transcript of the media (speech recognised automatically):
+[00:01] So the first thing you want to do is preheat the oven.
+[00:05] Meanwhile, mix the flour and the sugar together.
+[00:11] You'll hear it start to sizzle right about now.
+
+You are given a video. Based on the content of the video, answer the following question:
+
+Question:
+What sound occurs right after the mixing step?
+
+Options:
+A. sizzling
+B. silence
+C. music
+D. applause
+
+Answer with the option's letter directly(e.g., A, B, C, or D).If your access to the video content is limited, at least one option that is more likely than the others must be chosen.Mustn't give any other reason for can not choose!
+```
+
+### OmniDCBench
+미디어 파트: `video_url` (원본 영상 · 서버 기본 frame 샘플링)
+
+```text
+Audio transcript of the media (speech recognised automatically):
+[00:01] So the first thing you want to do is preheat the oven.
+[00:05] Meanwhile, mix the flour and the sugar together.
+[00:11] You'll hear it start to sizzle right about now.
+
+Thoroughly describe everything in the video, capturing every detail. Include as much information from the audio as possible, and ensure that the descriptions of both audio and video are well-coordinated.
+
+Return only a valid JSON array. Do not include markdown fences or any extra text. Each array item must describe one temporal segment and include:
+- "timestamp": a string in "MM:SS-MM:SS" format, relative to the start of this clip.
+- "caption": a detailed audio-visual caption for that segment.
+Use enough segments to cover the full video from beginning to end.
+This clip is exactly 15 seconds long. Every timestamp must lie within 00:00-00:15, and no timestamp may exceed 00:15. Do not describe or invent any segment beyond the end of the clip; stop once the clip ends.
+```
+
+### Video-MME — 주입하지 않음
+미디어 파트: `image_url` × 64 (JPEG data URI · frame당 602,112 px 상한)
+
+`audio_mode: none`이므로 transcript가 붙지 않습니다. 기존 4모델 런과 프롬프트가 완전히 동일합니다.
+
+```text
+Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.
+What is shown at the end of the video?
+A. a cake
+B. a car
+C. a dog
+D. a book
+The best answer is:
+```
+
+### 발화가 없을 때
+오디오 트랙이 없거나 VAD가 발화를 못 찾으면 블록이 한 줄로 대체됩니다.
+
+```text
+Audio transcript: (no speech detected)
+
+<official prompt>
+```
+
+- `max_chars`를 설정하면 앞부분을 잘라내고 `...(truncated)...`를 표시합니다 — 뒤쪽을 남기는 이유는 긴 클립에서 답이 후반에 있는 경우가 많기 때문입니다
+- transcript는 항상 미디어 파트 **뒤**, 텍스트 파트의 맨 앞에 들어갑니다
 
 ## 아키텍처
 
