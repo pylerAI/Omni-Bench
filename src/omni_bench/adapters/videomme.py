@@ -14,7 +14,8 @@ import cv2
 from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter
-from omni_bench.asr.audio import extract_wav, has_audio_stream
+from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
+from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
@@ -43,6 +44,12 @@ class VideoMMEAdapter(BenchmarkAdapter):
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
         use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
+        # Official subtitles ship as SRT next to the videos, not in the parquet.
+        # The README requires using only the cues covering the sampled frames.
+        subtitle_dir = benchmark.extra.get(
+            "subtitle_dir", str(Path(video_dir).parent / "subtitle")
+        )
+        subtitle_max_chars = benchmark.extra.get("subtitle_max_chars")
         # Off by default so the frames-only protocol the existing numbers were
         # measured under stays the default. On, audio is demuxed once per video
         # and passed alongside the frames — official Video-MME lists audio as an
@@ -72,6 +79,8 @@ class VideoMMEAdapter(BenchmarkAdapter):
         cache_lock = threading.Lock()
         write_lock = threading.Lock()
         frame_cache: "OrderedDict[str, list[str]]" = OrderedDict()
+        frame_meta: dict[str, tuple[list[int], int]] = {}
+        subtitle_cache: dict[str, str] = {}
 
         audio_lock = threading.Lock()
         audio_paths: dict[str, str | None] = {}
@@ -102,13 +111,41 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 if cached is not None:
                     frame_cache.move_to_end(video_path)
                     return cached
-            frames = sample_video_frames(video_path, num_frames, max_pixels)
+            frames, indices, total = sample_video_frames(
+                video_path, num_frames, max_pixels, return_meta=True
+            )
             with cache_lock:
                 frame_cache[video_path] = frames
+                frame_meta[video_path] = (indices, total)
                 frame_cache.move_to_end(video_path)
                 while len(frame_cache) > 64:
                     frame_cache.popitem(last=False)
             return frames
+
+        def subtitles_for(item: dict[str, Any]) -> str:
+            """Official cues covering the frames this video was sampled at."""
+            if not use_subtitles:
+                return ""
+            video_path = item["video_path"]
+            with cache_lock:
+                if video_path in subtitle_cache:
+                    return subtitle_cache[video_path]
+            frames_for(video_path)          # ensures indices are known
+            # SRT filenames use the YouTube videoID, which is the video file
+            # stem — not the parquet's numeric video_id.
+            srt = resolve_srt(subtitle_dir, Path(video_path).stem)
+            text = ""
+            if srt is not None:
+                indices, total = frame_meta.get(video_path, ([], 0))
+                duration = media_duration_s(video_path) or 0.0
+                text = subtitles_for_frames(
+                    parse_srt(srt),
+                    frame_times(indices, total, duration),
+                    max_chars=int(subtitle_max_chars) if subtitle_max_chars else None,
+                )
+            with cache_lock:
+                subtitle_cache[video_path] = text
+            return text
 
         def process_item(item: dict[str, Any]) -> dict[str, Any]:
             base = {
@@ -123,7 +160,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
             }
             try:
                 completion = client.complete(
-                    self._prompt(item, use_subtitles=use_subtitles),
+                    self._prompt(item, subtitles=subtitles_for(item)),
                     image_urls=frames_for(item["video_path"]),
                     audio_path=audio_for(item["video_path"]),
                     max_tokens=benchmark.max_tokens,
@@ -168,6 +205,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
             {
                 "official_results_file": str(output_dir / "official_results.json"),
                 "use_audio": use_audio,
+                "use_subtitles": use_subtitles,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",
@@ -202,10 +240,11 @@ class VideoMMEAdapter(BenchmarkAdapter):
         return rows
 
     @staticmethod
-    def _prompt(item: dict[str, Any], *, use_subtitles: bool) -> str:
+    def _prompt(item: dict[str, Any], *, subtitles: str = "") -> str:
+        # Official wording from the Video-MME README's with-subtitles setting.
         prefix = ""
-        if use_subtitles and item.get("subtitles"):
-            prefix = f"This video's subtitles are listed below:\n{item['subtitles']}\n"
+        if subtitles:
+            prefix = f"This video's subtitles are listed below:\n{subtitles}\n"
         return (
             prefix
             + "Select the best answer to the following multiple-choice question based on the video. "
@@ -216,7 +255,13 @@ class VideoMMEAdapter(BenchmarkAdapter):
         )
 
 
-def sample_video_frames(video_path: str | Path, num_frames: int, max_pixels: int) -> list[str]:
+def sample_video_frames(
+    video_path: str | Path,
+    num_frames: int,
+    max_pixels: int,
+    *,
+    return_meta: bool = False,
+):
     """Uniformly sample and resize frames, returned as JPEG ``data:`` URIs.
 
     Frames are resized so each has at most ``max_pixels`` pixels (rounded to the
@@ -249,6 +294,8 @@ def sample_video_frames(video_path: str | Path, num_frames: int, max_pixels: int
     capture.release()
     if not image_urls:
         raise ValueError(f"Failed to sample frames from video: {video_path}")
+    if return_meta:
+        return image_urls, indices[: len(image_urls)], total_frames
     return image_urls
 
 
