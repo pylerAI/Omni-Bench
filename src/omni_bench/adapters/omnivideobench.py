@@ -173,9 +173,11 @@ def run_single_item(
     sampled_video = read_json(cache_path)
     audio_path = sampled_video.get("audio_path")
     try:
+        server_side = str(benchmark.extra.get("frame_sampling", "client")).lower() == "server"
         completion = client.complete(
             prompt,
-            video_url=sampled_video["data_url"],
+            video_url=None if server_side else sampled_video["data_url"],
+            video_path=item["video_path"] if server_side else None,
             audio_path=audio_path if audio_path else None,
             max_tokens=int(benchmark.extra.get("max_tokens", 1024)),
             temperature=float(benchmark.extra.get("temperature", 0.7)),
@@ -185,7 +187,7 @@ def run_single_item(
                 "system_prompt",
                 "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
             ),
-            extra_body={
+            extra_body=None if server_side else {
                 "media_io_kwargs": {
                     "video": {
                         "num_frames": sampled_video["num_frames"],

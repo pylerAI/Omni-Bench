@@ -55,6 +55,8 @@ class VideoMMEAdapter(BenchmarkAdapter):
         # and passed alongside the frames — official Video-MME lists audio as an
         # input, and the frames-only setting was a context-window workaround.
         use_audio = bool(benchmark.extra.get("use_audio", False))
+        # "server": send the raw video and let the model processor sample it.
+        frame_sampling = str(benchmark.extra.get("frame_sampling", "client")).lower()
         audio_cache_dir = Path(
             benchmark.extra.get(
                 "audio_cache_dir", (benchmark.data_path or video_dir) and Path(video_dir).parent / "preprocess_cache"
@@ -159,9 +161,11 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "video_path": item["video_path"],
             }
             try:
+                server_side = frame_sampling == "server"
                 completion = client.complete(
                     self._prompt(item, subtitles=subtitles_for(item)),
-                    image_urls=frames_for(item["video_path"]),
+                    image_urls=None if server_side else frames_for(item["video_path"]),
+                    video_path=item["video_path"] if server_side else None,
                     audio_path=audio_for(item["video_path"]),
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
@@ -206,6 +210,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "official_results_file": str(output_dir / "official_results.json"),
                 "use_audio": use_audio,
                 "use_subtitles": use_subtitles,
+                "frame_sampling": frame_sampling,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",
