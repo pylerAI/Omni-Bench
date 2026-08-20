@@ -388,16 +388,29 @@ AV-SpeakerBench가 정확히 동일하다는 점이 이것이 파서 일반의 �
 
 기존 4개 omni 모델은 지시를 따라 단답을 냈으므로 이 함정에 걸리지 않았을 가능성이 큽니다. 즉 **결함이 신규 모델만 깎는 방향**으로 작동합니다. 두 수치를 함께 보고하고, 기존 모델의 저장된 응답이 남아 있으면 동일 기준으로 재채점해 비교하는 것이 가장 엄격합니다.
 
-## frame당 토큰이 모델마다 다르다
+## frame당 토큰 — 두 모델이 같다
 
-`max_pixels: 602112`는 프레임당 면적 상한이지 토큰 상한이 아닙니다. 토큰 수는 모델의 patch/merge 설정으로 갈립니다.
+두 모델의 vision patch 설정이 동일합니다. `Qwen3.8-27B`의 `video_preprocessor_config.json`과 Qwen3-Omni의 `Qwen2VLVideoProcessor` 모두 `patch_size 16` · `merge_size 2` · `temporal_patch_size 2` 입니다. 따라서 같은 면적의 frame은 같은 토큰 수가 됩니다.
 
-| Model | patch · merge | 602,112px 프레임당 토큰 |
+| Model | patch · merge · temporal | Video-MME prompt 평균 |
 | --- | --- | --- |
-| Qwen3.8-27B | 16 · 2 | **588** |
-| Qwen3-Omni | 28px 그리드 | 192 |
+| Qwen3.8-27B | 16 · 2 · 2 | 34,141 |
+| Qwen3-Omni | 16 · 2 · 2 | 34,131 |
 
-Video-MME에서 Qwen3.8-27B의 prompt는 평균 34,141 토큰이었습니다(프레임 64장 × 약 532). 즉 **비주얼 입력량이 동일하지 않고, 신규 모델이 3배 가까이 많이 받았습니다.** 그 조건에서도 뒤졌다는 점은 결론을 약화시키지 않습니다.
+실측이 10 토큰 차이로 일치합니다. **비주얼 입력량은 동일합니다.**
+
+`max_pixels: 602112`는 frame당 면적 상한이고, 토큰은 patch/merge로 결정됩니다 — 두 모델이 같으므로 이 값은 양쪽에 같게 작용합니다. 모델별로 다른 것은 전체 픽셀 예산(`size.longest_edge`, 25,165,824 대 12,845,056)뿐이고, Video-MME frame은 그 한참 아래여서 차이가 나타나지 않습니다.
+
+### frame을 이미지로 보내면 temporal 병합이 사라진다
+
+Video-MME adapter는 frame 64장을 `image_url` 파트 64개로 보냅니다(`video_url` 0개). `image_processing_qwen2_vl.py`는 이미지 1장을 `temporal_patch_size`만큼 복제해 채우고 temporal grid를 1로 고정하므로, frame 간 병합이 일어나지 않습니다.
+
+| 전송 방식 | temporal grid | 토큰 |
+| --- | --- | --- |
+| `image_url` × 64 (현재) | 64 | 약 34,100 |
+| `video_url` 1개 (64 frame) | 32 | 약 17,000 |
+
+즉 같은 정보를 2배 토큰으로 넣고, 인코더는 frame 간 시간 관계를 받지 못합니다. mRoPE의 temporal 축도 video 입력에서만 제대로 쓰입니다. 양쪽 모델이 동일 방식이므로 비교는 공정하지만, temporal 계열 항목의 절대 수치는 이 구조에 영향받습니다.
 
 ## 스모크 테스트
 
