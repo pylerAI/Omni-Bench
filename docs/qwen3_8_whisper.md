@@ -301,6 +301,34 @@ Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질�
 
 발화가 없는 클립에 존재하지 않는 정보가 주입되므로 cascade에 불리하게 작용합니다. `no_speech_threshold`, `hallucination_silence_threshold` 조정과 크레딧 패턴 후처리가 후보이며 아직 적용하지 않았습니다.
 
+## 환경 구축 — README 명령을 그대로 쓰면 안 된다
+
+README의 flash-attn 설치 명령에는 두 가지 함정이 있습니다.
+
+```bash
+# README 그대로 — 위험
+uv pip install "https://.../flash_attn-2.8.3+cu130torch2.11-...whl"
+
+# 실제로 써야 하는 형태
+uv pip install --python <venv>/bin/python --no-deps "https://.../flash_attn-...whl"
+```
+
+`--no-deps`가 없으면 wheel이 torch를 고정하지 않아 uv가 최신 torch를 끌어옵니다. 실제로 실행했을 때 `torch==2.13.0`, `triton==3.7.1` 설치가 계획됐습니다 — vLLM 0.24.0은 torch 2.11.0에 맞춰 빌드되어 있으므로 그대로 진행되면 서빙이 깨집니다. wheel 파일명의 `+cu130torch2.11`이 이미 torch 2.11 전용임을 말하고 있습니다.
+
+`--python`도 필요합니다. `uv pip`은 `UV_PROJECT_ENVIRONMENT`를 참조하지 않으므로(그 변수는 `uv sync`/`uv run` 전용), 홈이 NFS라 venv를 다른 곳에 둔 환경에서는 설치 대상이 어긋납니다.
+
+### flash-attn은 attention backend를 바꾸지 않는다
+
+설치 전후로 서빙 로그가 동일합니다.
+
+| 계층 | 설치 전 | 설치 후 |
+| --- | --- | --- |
+| ViT attention | `FLASH_ATTN` | `FLASH_ATTN` |
+| MMEncoderAttention | `FLASH_ATTN` | `FLASH_ATTN` |
+| 메인 attention | `FLASHINFER` | `FLASHINFER` |
+
+vLLM이 번들 커널(`vllm-flash-attn`)을 쓰기 때문에 외부 패키지 유무와 무관합니다. AV-SpeakerBench 정확도도 50.78 → 50.90으로 사실상 불변이고 `prompt_tokens`는 4,728 그대로입니다. 즉 이 설치는 재현성 관점에서 변수가 아닙니다.
+
 ## 서버 위임 frame sampling은 재현되지 않는다
 
 `configs/benchmarks/default.yaml`에서 AV-SpeakerBench와 OmniDCBench는 frame 수를 지정하지 않고 서버(모델 프로세서)의 기본 sampling에 맡깁니다. 같은 모델을 같은 코드로 다시 측정해 보면 이 두 benchmark만 리포트 수치와 어긋납니다.
@@ -311,9 +339,9 @@ Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질�
 | WorldSense | 51.48 | 51.36 | +0.12 | 클라이언트 |
 | Video-MME | 69.67 | 70.19 | −0.52 | 클라이언트 |
 | OmniDCBench F1 | 68.53 | 71.99 | −3.46 | **서버** |
-| AV-SpeakerBench | 50.78 | 55.98 | −5.20 | **서버** |
+| AV-SpeakerBench | 50.90 | 55.98 | −5.08 | **서버** |
 
-vLLM 버전(lock이 0.24.0으로 고정), HF dataset(최신 커밋이 7개월 전), 로컬 미디어, adapter/config, `--moe-backend`, `--max-model-len`, serve 시점 `mm-processor-kwargs`를 모두 배제했습니다. `--max-model-len`을 지정하지 않아도 vLLM은 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변이라 frame 수가 바뀌지 않았습니다.
+vLLM 버전(lock이 0.24.0으로 고정), HF dataset(최신 커밋이 7개월 전), 로컬 미디어, adapter/config, `--moe-backend`, `--max-model-len`, serve 시점 `mm-processor-kwargs`, transformers 버전, flash-attn을 모두 배제했습니다. `--max-model-len`을 지정하지 않아도 vLLM은 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변이라 frame 수가 바뀌지 않았습니다.
 
 즉 이 두 benchmark의 비주얼 입력은 harness가 고정하지 못하는 값에 달려 있습니다. **비교는 같은 시점에 측정한 값끼리만 유효합니다.** 서로 다른 날의 수치를 대조하려면 frame 수를 config에 명시해야 합니다 — 다만 그렇게 하면 기존 리포트 수치와의 비교가 끊어집니다.
 

@@ -168,7 +168,7 @@ ASR 산출물:
 | WorldSense | 51.48 | 51.36 | +0.12 | 클라이언트 8장 |
 | Video-MME | 69.67 | 70.19 | −0.52 | 클라이언트 64장 |
 | OmniDCBench F1 | 68.53 | 71.99 | **−3.46** | **서버 기본값** |
-| AV-SpeakerBench | 50.78 | 55.98 | **−5.20** | **서버 기본값** |
+| AV-SpeakerBench | 50.90 | 55.98 | **−5.08** | **서버 기본값** |
 
 원인 후보를 차례로 배제했습니다.
 
@@ -182,8 +182,12 @@ ASR 산출물:
 | `--moe-backend triton` | 배제 — 커널 수치 차이라면 나머지 3개도 흔들려야 하는데 ±0.5 이내 |
 | `--max-model-len` | 배제 — 미지정 시에도 vLLM이 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변 |
 | serve 시점 `mm-processor-kwargs` | 배제 — 저장소 이력에 존재하지 않음 |
+| transformers 버전 | 배제 — `uv.lock`이 고정한 5.12.1과 설치본 일치 |
+| **flash-attn** | **배제** — README가 요구하는 wheel을 설치해도 attention backend가 바뀌지 않는다. 설치 전에도 이미 vLLM 번들 커널로 `FLASH_ATTN`(ViT·MMEncoder) + `FLASHINFER`(메인)이었고 설치 후에도 동일하며, 정확도 50.78 → 50.90, `prompt_tokens` 4,728 불변 |
 
-확인할 수 없는 것이 둘 남습니다: 원래 환경의 transformers 버전, 그리고 adapter의 재개 로직이 조건 변경 전 레코드를 그대로 집계했을 가능성입니다. 어느 수치가 틀렸다고 단정할 근거는 없으며, **비주얼 입력을 서버에 위임한 두 benchmark가 harness 밖의 변화에 노출되어 있다**는 것이 확인된 사실입니다.
+환경은 README와 `uv.lock`이 규정한 조합(vllm 0.24.0 · torch 2.11.0+cu130 · triton 3.6.0 · transformers 5.12.1 · flash-attn 2.8.3+cu130torch2.11)으로 완전히 맞췄고, 세 조건(max-model-len 지정/미지정 × flash-attn 유/무)의 편차는 0.71점인 반면 리포트와는 5.08점 차이입니다. **저장소 문서만으로 그 수치를 재현할 방법은 없습니다.**
+
+남은 설명은 저장소 밖에 있고 사후 확인이 불가능합니다: 원래 런이 lock 기준 환경이 아니었을 가능성, 그리고 adapter의 재개 로직이 조건 변경 전 레코드를 그대로 집계했을 가능성입니다. 어느 수치가 틀렸다고 단정할 근거는 없으며, **비주얼 입력을 서버에 위임한 두 benchmark가 harness 밖의 변화에 노출되어 있다**는 것이 확인된 사실입니다.
 
 따라서 아래 비교는 **같은 날 같은 코드로 측정한 Qwen3-Omni 재현값**을 기준으로 합니다.
 
@@ -191,7 +195,7 @@ ASR 산출물:
 
 | Benchmark | E0 | E1 | ours best | Qwen3-Omni (재현) | 차이 |
 | --- | --- | --- | --- | --- | --- |
-| AV-SpeakerBench | 46.58 | **50.47** | 50.47 | 50.78 | **−0.31** |
+| AV-SpeakerBench | 46.58 | **50.47** | 50.47 | 50.90 | **−0.43** |
 | WorldSense | 38.75 | **46.97** | 46.97 | 51.48 | −4.51 |
 | Video-MME (robust) | 67.26 | 67.26 | 67.26 | 69.67 | −2.41 |
 | **OmniVideoBench** | 37.60 | **41.70** | 41.70 | 41.10 | **+0.60** |
@@ -215,9 +219,9 @@ Qwen3.8-27B + Whisper cascade는 **Qwen3-Omni를 대체할 수준이 아닙니�
 
 | 항목 | ours | Qwen3-Omni | 차이 |
 | --- | --- | --- | --- |
-| AV-SpeakerBench Visual-centric | 51.87 | 50.41 | **+1.46** |
-| AV-SpeakerBench Speaker-centric | 50.68 | 50.20 | +0.48 |
-| AV-SpeakerBench Audio-centric | 49.63 | 51.49 | −1.86 |
+| AV-SpeakerBench Visual-centric | 51.87 | 50.08 | **+1.79** |
+| AV-SpeakerBench Speaker-centric | 50.68 | 49.24 | **+1.44** |
+| AV-SpeakerBench Audio-centric | 49.63 | 52.82 | −3.19 |
 | WorldSense Recognition | 42.30 | 47.32 | −5.02 |
 | WorldSense Understanding | 47.96 | 53.03 | −5.07 |
 
