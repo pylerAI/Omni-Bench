@@ -64,6 +64,8 @@ class AsrSettings:
     strict_cache: bool = False
     with_timestamps: bool = True
     max_chars: int | None = None
+    #: Drop transcript segments starting past this timestamp — see format_transcript.
+    max_end_s: float | None = None
     header: str = DEFAULT_HEADER
     empty_text: str = DEFAULT_EMPTY_TEXT
 
@@ -88,6 +90,7 @@ class AsrSettings:
             "strict_cache": self.strict_cache,
             "with_timestamps": self.with_timestamps,
             "max_chars": self.max_chars,
+            "max_end_s": self.max_end_s,
             "header": self.header,
             "empty_text": self.empty_text,
         }

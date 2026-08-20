@@ -14,6 +14,7 @@ import cv2
 from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter
+from omni_bench.asr.audio import extract_wav, has_audio_stream
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
@@ -42,6 +43,16 @@ class VideoMMEAdapter(BenchmarkAdapter):
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
         use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
+        # Off by default so the frames-only protocol the existing numbers were
+        # measured under stays the default. On, audio is demuxed once per video
+        # and passed alongside the frames — official Video-MME lists audio as an
+        # input, and the frames-only setting was a context-window workaround.
+        use_audio = bool(benchmark.extra.get("use_audio", False))
+        audio_cache_dir = Path(
+            benchmark.extra.get(
+                "audio_cache_dir", (benchmark.data_path or video_dir) and Path(video_dir).parent / "preprocess_cache"
+            )
+        ).expanduser()
 
         records_path = output_dir / "records.jsonl"
         records = read_jsonl_records(records_path)
@@ -61,6 +72,29 @@ class VideoMMEAdapter(BenchmarkAdapter):
         cache_lock = threading.Lock()
         write_lock = threading.Lock()
         frame_cache: "OrderedDict[str, list[str]]" = OrderedDict()
+
+        audio_lock = threading.Lock()
+        audio_paths: dict[str, str | None] = {}
+
+        def audio_for(video_path: str) -> str | None:
+            """Demuxed wav for this video, extracted once and reused."""
+            if not use_audio:
+                return None
+            with audio_lock:
+                if video_path in audio_paths:
+                    return audio_paths[video_path]
+            target = audio_cache_dir / f"{Path(video_path).stem}.wav"
+            result: str | None = None
+            try:
+                if target.exists():
+                    result = str(target)
+                elif has_audio_stream(video_path):
+                    result = str(extract_wav(video_path, target))
+            except Exception:
+                result = None
+            with audio_lock:
+                audio_paths[video_path] = result
+            return result
 
         def frames_for(video_path: str) -> list[str]:
             with cache_lock:
@@ -91,6 +125,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 completion = client.complete(
                     self._prompt(item, use_subtitles=use_subtitles),
                     image_urls=frames_for(item["video_path"]),
+                    audio_path=audio_for(item["video_path"]),
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
                 )
@@ -132,6 +167,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
         summary.update(
             {
                 "official_results_file": str(output_dir / "official_results.json"),
+                "use_audio": use_audio,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",

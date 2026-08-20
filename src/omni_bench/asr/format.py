@@ -25,14 +25,37 @@ def format_transcript(
     empty_text: str = DEFAULT_EMPTY_TEXT,
     with_timestamps: bool = True,
     max_chars: int | None = None,
+    max_end_s: float | None = None,
 ) -> str:
     """Prompt-ready transcript block.
 
     ``max_chars`` keeps the tail of the transcript, which is where the answer
     usually lives for long clips, and marks the truncation explicitly.
+
+    ``max_end_s`` drops segments starting past that timestamp. Needed when the
+    comparison target hears only part of the audio: Qwen3-Omni's feature
+    extractor stops at 300s (``n_samples`` 4,800,000 at 16 kHz), so on a
+    40-minute video an untruncated transcript would hand the cascade 8x the
+    audio its baseline receives.
     """
     if not transcription.has_speech:
         return empty_text
+
+    if max_end_s is not None:
+        kept = [s for s in transcription.segments if s.start_s < max_end_s]
+        if not kept:
+            return empty_text
+        transcription = Transcription(
+            media=transcription.media,
+            backend=transcription.backend,
+            model=transcription.model,
+            segments=kept,
+            language=transcription.language,
+            language_probability=transcription.language_probability,
+            duration_s=transcription.duration_s,
+            elapsed_s=transcription.elapsed_s,
+            params=transcription.params,
+        )
 
     if with_timestamps:
         lines = [

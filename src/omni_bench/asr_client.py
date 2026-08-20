@@ -117,6 +117,7 @@ class AsrTextChatClient(NoAudioChatClient):
             empty_text=self.settings.empty_text,
             with_timestamps=self.settings.with_timestamps,
             max_chars=self.settings.max_chars,
+            max_end_s=self.settings.max_end_s,
         )
 
     def complete(
