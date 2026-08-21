@@ -63,17 +63,6 @@ benchmark config의 `frame_sampling`으로 프레임 추출 주체를 고릅니�
 | `client` (기본) | harness가 프레임을 뽑아 `image_url`로 전송 |
 | `server` | 원본 영상을 넘겨 모델 프로세서가 결정 |
 
-## thinking
-
-`extra_body.chat_template_kwargs.enable_thinking`으로 켭니다. thinking 출력은 official parser(첫 `[ABCD]`)로 채점할 수 없고, `max_tokens`에 걸리면 최종 답이 유실됩니다.
-
-```bash
-python scripts/strip_truncated.py all   # 잘린 레코드 제거 → 재실행하면 그 건만 돈다
-python scripts/rescore_mcq.py <records> # 저장된 응답으로 재채점
-```
-
-측정 결과와 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md) 참고.
-
 ## 프로젝트 구조
 
 ```text
@@ -203,6 +192,35 @@ uv run omni-bench run \
 uv run omni-bench run \
   --config configs/models/qwen3_omni.yaml \
   --benchmark-config configs/benchmarks/default.yaml
+```
+
+Qwen3.8-27B + Whisper — recommend config (`frame_sampling: server` + Qwen 권장 샘플링):
+
+```bash
+# thinking
+uv run omni-bench run \
+  --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
+  --benchmark-config configs/recommend/bench_thinking.yaml \
+  --benchmark worldsense
+
+# non-thinking
+uv run omni-bench run \
+  --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml \
+  --benchmark-config configs/recommend/bench_nothink.yaml \
+  --benchmark worldsense
+
+# Video-MME 는 ASR 을 주입하지 않아 별도 config
+uv run omni-bench run \
+  --config configs/recommend/qwen3_8_27b_videomme_thinking.yaml \
+  --benchmark-config configs/recommend/bench_videomme_thinking.yaml \
+  --benchmark videomme
+```
+
+thinking 런은 출력이 `max_tokens`에 걸리면 최종 답이 유실되고, official parser(첫 `[ABCD]`)로는 채점할 수 없습니다.
+
+```bash
+python scripts/strip_truncated.py all   # 잘린 레코드 제거 → 위 명령 재실행하면 그 건만 돈다
+python scripts/rescore_mcq.py <records> # 저장된 응답으로 재채점
 ```
 
 사용 가능한 adapter 목록 확인:
