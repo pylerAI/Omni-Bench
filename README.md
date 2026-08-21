@@ -60,24 +60,19 @@ benchmark config의 `frame_sampling`으로 프레임 추출 주체를 고릅니�
 
 | 값 | 동작 |
 | --- | --- |
-| `client` (기본) | harness가 프레임을 뽑아 `image_url`로 전송 — benchmark별 official protocol 재현 |
-| `server` | 원본 영상을 그대로 넘겨 **모델 프로세서**가 결정 — 모델 권장 설정 |
-
-`server`는 모델 웨이트의 `video_preprocessor_config.json`을 그대로 씁니다. 픽셀 예산이 프레임당이 아니라 **비디오 전체**에 걸리므로, 프레임이 많아지면 해상도가 깎입니다 — Qwen3.8-27B 기준 720p를 지키면 27장, 768장을 채우면 224×128이 됩니다.
-
-두 방식은 정확도 차이가 ±1 이내지만 `server`가 prompt 토큰을 40%로 줄이고, 모델이 단답을 내도록 만들어 **파서 선택에 따른 점수 차이를 없앱니다**(공식/개선 파서 차이 +12.30 → +0.07). 측정 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md)에 있습니다.
+| `client` (기본) | harness가 프레임을 뽑아 `image_url`로 전송 |
+| `server` | 원본 영상을 넘겨 모델 프로세서가 결정 |
 
 ## thinking
 
-`extra_body.chat_template_kwargs.enable_thinking`으로 켭니다. Qwen3.8-27B에서는 **성능을 결정하는 유일한 변수**였습니다 — MCQ 4종에서 +9.80 ~ +15.01, 대가는 실행 시간 4~25배입니다.
-
-thinking 출력은 `max_tokens`에 걸리면 최종 답이 유실되므로 넉넉히 잡아야 합니다(측정 시 32,768). 잘린 건만 다시 돌리려면:
+`extra_body.chat_template_kwargs.enable_thinking`으로 켭니다. thinking 출력은 official parser(첫 `[ABCD]`)로 채점할 수 없고, `max_tokens`에 걸리면 최종 답이 유실됩니다.
 
 ```bash
-python scripts/strip_truncated.py all   # 제거 후 같은 명령을 재실행하면 그 건만 돈다
+python scripts/strip_truncated.py all   # 잘린 레코드 제거 → 재실행하면 그 건만 돈다
+python scripts/rescore_mcq.py <records> # 저장된 응답으로 재채점
 ```
 
-official parser는 첫 `[ABCD]` 문자를 집으므로 thinking 출력에 쓸 수 없습니다. `scripts/rescore_mcq.py`로 재채점하세요.
+측정 결과와 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md) 참고.
 
 ## 프로젝트 구조
 
@@ -233,8 +228,6 @@ results/<model-name>/<benchmark-name>/
 - `summary.json`
 
 일부 adapter는 official evaluator에 넣을 수 있는 별도 파일도 생성합니다. 예를 들어 Video-MME는 `official_results.json`, OmniDCBench는 `predictions.jsonl`을 저장합니다.
-
-Qwen3.8-27B + Whisper의 recommend config 측정 결과는 `/gpfs/public/artifacts/ail/omni-bench/runs/` 에 있고, 수치는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md)에 정리했습니다.
 
 전체 benchmark 결과는 아래 파일로 취합됩니다.
 
