@@ -24,7 +24,7 @@ Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
-| Qwen3.8-27B + Whisper ([계획](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` |
+| Qwen3.8-27B + Whisper ([평가](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md)) | `configs/recommend/*.yaml` |
 
 지원 benchmark:
 
@@ -54,6 +54,31 @@ uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.y
 
 자세한 내용은 [docs/qwen3_8_whisper.md](docs/qwen3_8_whisper.md)를 참고하세요.
 
+## Frame sampling
+
+benchmark config의 `frame_sampling`으로 프레임 추출 주체를 고릅니다.
+
+| 값 | 동작 |
+| --- | --- |
+| `client` (기본) | harness가 프레임을 뽑아 `image_url`로 전송 — benchmark별 official protocol 재현 |
+| `server` | 원본 영상을 그대로 넘겨 **모델 프로세서**가 결정 — 모델 권장 설정 |
+
+`server`는 모델 웨이트의 `video_preprocessor_config.json`을 그대로 씁니다. 픽셀 예산이 프레임당이 아니라 **비디오 전체**에 걸리므로, 프레임이 많아지면 해상도가 깎입니다 — Qwen3.8-27B 기준 720p를 지키면 27장, 768장을 채우면 224×128이 됩니다.
+
+두 방식은 정확도 차이가 ±1 이내지만 `server`가 prompt 토큰을 40%로 줄이고, 모델이 단답을 내도록 만들어 **파서 선택에 따른 점수 차이를 없앱니다**(공식/개선 파서 차이 +12.30 → +0.07). 측정 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md)에 있습니다.
+
+## thinking
+
+`extra_body.chat_template_kwargs.enable_thinking`으로 켭니다. Qwen3.8-27B에서는 **성능을 결정하는 유일한 변수**였습니다 — MCQ 4종에서 +9.80 ~ +15.01, 대가는 실행 시간 4~25배입니다.
+
+thinking 출력은 `max_tokens`에 걸리면 최종 답이 유실되므로 넉넉히 잡아야 합니다(측정 시 32,768). 잘린 건만 다시 돌리려면:
+
+```bash
+python scripts/strip_truncated.py all   # 제거 후 같은 명령을 재실행하면 그 건만 돈다
+```
+
+official parser는 첫 `[ABCD]` 문자를 집으므로 thinking 출력에 쓸 수 없습니다. `scripts/rescore_mcq.py`로 재채점하세요.
+
 ## 프로젝트 구조
 
 ```text
@@ -61,10 +86,16 @@ configs/
   benchmarks/default.yaml
   models/qwen3_omni.yaml
   models/nemotron_3_nano_omni.yaml
+  recommend/                      Qwen3.8-27B recommend config (thinking / non-think)
+  asr/whisper_large_v3.yaml
 docs/
 scripts/
   serve_qwen3_omni.sh
+  serve_qwen3_8_27b.sh
   serve_nemotron_3_nano_omni.sh
+  prepare_asr.py                  선행 ASR 전사 (GPU 분산 · 재개 가능)
+  strip_truncated.py              잘린 thinking 레코드 제거
+  rescore_mcq.py                  저장된 응답으로 MCQ 재채점
   extract_worldsense_videos.sh
   extract_omnidcbench_videos.sh
 src/omni_bench/
@@ -202,6 +233,8 @@ results/<model-name>/<benchmark-name>/
 - `summary.json`
 
 일부 adapter는 official evaluator에 넣을 수 있는 별도 파일도 생성합니다. 예를 들어 Video-MME는 `official_results.json`, OmniDCBench는 `predictions.jsonl`을 저장합니다.
+
+Qwen3.8-27B + Whisper의 recommend config 측정 결과는 `/gpfs/public/artifacts/ail/omni-bench/runs/` 에 있고, 수치는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md)에 정리했습니다.
 
 전체 benchmark 결과는 아래 파일로 취합됩니다.
 
