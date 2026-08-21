@@ -30,11 +30,20 @@ uv run omni-bench run \
   --benchmark videomme
 ```
 
-thinking 런은 출력이 `max_tokens`에 걸리면 최종 답이 유실되고, official parser(첫 `[ABCD]`)로는 채점할 수 없습니다.
+### thinking 런의 후처리
+
+추론이 `max_tokens`를 다 쓰면 `</think>` 뒤의 최종 답이 없는 채로 기록됩니다. 그 레코드를 지우면 어댑터가 **지워진 건만** 다시 돌립니다.
 
 ```bash
-python scripts/strip_truncated.py all   # 잘린 레코드 제거 → 위 명령 재실행하면 그 건만 돈다
-python scripts/rescore_mcq.py <records> # 저장된 응답으로 재채점
+python scripts/strip_truncated.py all --dry-run   # 벤치별 잘린 건수만 확인
+python scripts/strip_truncated.py all             # 제거 (원본은 ~/trash 백업)
+# → 위 평가 명령을 그대로 다시 실행
+```
+
+채점은 `rescore_mcq.py`를 씁니다. official parser는 응답의 첫 `[ABCD]` 문자를 답으로 보므로, 추론 텍스트가 앞에 붙는 thinking 출력에서는 오답이 잡힙니다.
+
+```bash
+python scripts/rescore_mcq.py results/<model>/<benchmark>/records.jsonl options
 ```
 
 측정 결과와 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md) 참고.
