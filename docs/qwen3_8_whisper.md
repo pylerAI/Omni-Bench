@@ -20,27 +20,38 @@ AAII bench에서 Qwen3.8-27B가 52점으로 GPT-5.6-Luna와 동급의 언어 성
 | vision tower | 27층 · hidden 1152 · patch 16 |
 | audio | **없음** — Whisper cascade로 대체 |
 
-## 실험 구성
+## 실험 구성 — recommend config
 
-| # | 구성 | `audio_mode` | Config |
-| --- | --- | --- | --- |
-| E1 | Qwen3.8-27B + Whisper | `asr_text` (Video-MME는 `none`) | `configs/models/qwen3_8_27b_whisper.yaml` |
+Qwen 권장 설정으로 **non-think / thinking 두 조건**을 측정합니다. 이전 evalkit 기반(프레임 고정 · `temperature 0`)은 archive로 옮겼습니다.
 
-`audio_mode: none`은 Video-MME에서 쓰이는 벤치마크 단위 값으로 남아 있습니다. audio를 전부 제거한 모델 단위 baseline은 측정하지 않습니다.
+| 조건 | `enable_thinking` | temp / top_p / presence | `max_tokens` | Config |
+| --- | --- | --- | --- | --- |
+| non-think | false | 0.7 / 0.80 / 1.5 | 4,096 | `qwen3_8_27b_whisper_nothink.yaml` + `bench_nothink.yaml` |
+| thinking | **true** | 1.0 / 0.95 / 0.0 | **32,768** | `qwen3_8_27b_whisper_thinking.yaml` + `bench_thinking.yaml` |
+
+두 조건 모두 `top_k 20` · `min_p 0.0` · `repetition_penalty 1.0` · `frame_sampling: server`입니다. config는 `configs/recommend/` 에 있습니다.
+
+`audio_mode`는 4종에서 `asr_text`, Video-MME만 `none`입니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건이기 때문입니다.
+
+**결과는 thinking이 유일한 유효 변수입니다.** 샘플링 파라미터(−0.13 ~ +2.90)와 frame sampling(−1.00 ~ +0.15)은 분산 범위이고, thinking만 +9.80 ~ +15.01을 만듭니다. 수치는 [평가 문서](qwen3.8_plan.md#2-결과)를 참고하세요.
 
 ## 벤치마크별 audio 경로
 
 adapter는 전부 `VllmChatClient.complete()` 하나만 호출하므로, audio 처리는 client 계층에서만 교체됩니다. **adapter 코드는 수정하지 않았습니다.**
 
+recommend config는 5종 전부 `frame_sampling: server` — 원본 영상을 그대로 넘깁니다.
+
 | Benchmark | 비주얼 | audio 소스 | cascade 처리 |
 | --- | --- | --- | --- |
 | AV-SpeakerBench | `video_path` | 영상 컨테이너 내 오디오 트랙 | ffmpeg로 demux 후 전사 |
-| OmniDCBench | `video_path` + `use_audio_in_video` | 영상 컨테이너 내 오디오 트랙 | ffmpeg로 demux 후 전사 · 플래그는 false로 강제 |
-| WorldSense | `image_urls` (프레임) | `audio_path` (.wav) | 그대로 전사 |
-| OmniVideoBench | `video_url` (data URL) | `audio_path` (.wav) | 그대로 전사 |
-| Video-MME | `image_urls`만 | **없음** | **주입 없음 — 기존 4모델 런과 입력 동일** |
+| OmniDCBench | `video_path` | 영상 컨테이너 내 오디오 트랙 | ffmpeg로 demux 후 전사 · `use_audio_in_video`는 false로 강제 |
+| WorldSense | `video_path` | `audio_path` (.wav) | 그대로 전사 |
+| OmniVideoBench | `video_path` | `audio_path` (.wav) | 그대로 전사 |
+| Video-MME | `video_path` | **없음** | **주입 없음** |
 
-Video-MME는 `audio_path`도 `video_path`도 넘기지 않으므로 client가 자동으로 통과시키고, 그 위에 `configs/benchmarks/default.yaml`에서 `audio_mode: none`으로 못박아 두었습니다. 기존 4모델 수치(70.19 등)와 입력이 완전히 동일해 직접 비교가 성립합니다.
+AV-SpeakerBench와 OmniDCBench는 어댑터가 원래부터 `video_path`를 보내므로 `frame_sampling` 키가 필요 없습니다. 나머지 셋은 이 키로 클라이언트 프레임 추출을 끕니다.
+
+Video-MME는 `audio_path`를 넘기지 않고, 그 위에 `configs/benchmarks/default.yaml`에서 `audio_mode: none`으로 못박아 두었습니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건입니다.
 
 ## audio_mode 우선순위
 
@@ -111,7 +122,7 @@ Answer:
 ```
 
 ### OmniVideoBench
-미디어 파트: `video_url` (2.0 fps · 최대 120장 data URI) · system prompt 별도
+미디어 파트: `video_path` (원본 영상 · 서버 프레임 샘플링) · system prompt 별도
 
 ```text
 Audio transcript of the media (speech recognised automatically):
@@ -239,14 +250,44 @@ GPU당 워커 프로세스 1개, 프로세스당 스레드 풀로 병렬 처리�
 ### 2. 서빙
 
 ```bash
-bash scripts/serve_qwen3_8_27b.sh
+MAX_MODEL_LEN=131072 VLLM_BIN=$UV_PROJECT_ENVIRONMENT/bin/vllm \
+  bash scripts/serve_qwen3_8_27b.sh
 ```
+
+`MAX_MODEL_LEN`을 올리는 이유는 thinking 출력(최대 32,768)과 server frame sampling의 입력(최대 25,760)을 함께 담기 위함입니다. 기본값으로는 thinking 런이 컨텍스트를 넘깁니다.
 
 ### 3. 평가
 
 ```bash
-uv run omni-bench run --config configs/models/qwen3_8_27b_whisper.yaml
+export ALLOWED_LOCAL_MEDIA_PATH=/gpfs/public
+# bench = videomme | worldsense | omnivideobench | av_speakerbench
+
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
+    --benchmark-config configs/recommend/bench_thinking.yaml   --benchmark <bench>   # thinking
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml \
+    --benchmark-config configs/recommend/bench_nothink.yaml --benchmark <bench>   # non-think
 ```
+
+Video-MME는 ASR을 주입하지 않으므로 별도 model config(`configs/recommend/qwen3_8_27b_videomme_thinking.yaml` · `..._nothink.yaml`)를 씁니다.
+
+### 4. 잘린 건 보완
+
+```bash
+python scripts/strip_truncated.py all   # --dry-run 으로 먼저 세어볼 수 있다
+```
+
+`max_tokens`에 도달해 최종 답이 유실된 레코드를 제거합니다. 그 뒤 3번을 다시 실행하면 어댑터 재개 로직이 **제거된 건만** 다시 돌립니다.
+
+판정 기준이 두 개입니다.
+
+| 기준 | 이유 |
+| --- | --- |
+| `completion_tokens >= max_tokens` | 명시적 잘림 |
+| `<think>`는 열렸는데 `</think>`가 없다 | 어댑터가 다른 상한을 쓰는 경우를 잡는다 — OmniVideoBench가 1,024에 걸렸을 때 첫 기준으로는 놓쳤다 |
+
+OmniDCBench는 `prediction_json`이 `null`인 건도 함께 제거합니다. 캡셔닝은 JSON이 안 뽑히면 토큰이 남아도 그 샘플이 0점입니다.
+
+**보완 효과는 작습니다.** 잘린 문항은 모델이 결론을 못 내려 헤매던 어려운 문항이므로, 토큰을 더 줘도 정답률이 평균보다 낮습니다 — Video-MME 77.22 → 77.33, WorldSense 61.13 → 61.32. AV-SpeakerBench는 정상 종료분만 본 68.14가 실제로는 65.35였습니다.
 
 ## ASR task — `transcribe` 고정
 
@@ -264,7 +305,7 @@ Whisper는 `transcribe`(원어 유지)와 `translate`(영어로 번역) 두 task
 | --- | --- |
 | vLLM 아키텍처 지원 | vLLM 0.24.0이 `Qwen3_5ForConditionalGeneration`을 등록함 |
 | 서빙 | GPU 1장 6분, DP=4 11분에 기동. FlashInfer JIT용 `ninja`가 PATH에 없으면 가중치 로드 후 첫 샘플링 커널 빌드 시점에 실패 |
-| thinking | chat template이 `<think>`를 기본으로 염 — 껐다 (아래 참고) |
+| thinking | chat template이 `<think>`를 기본으로 염. non-think / thinking 두 조건을 모두 측정 (아래 참고) |
 | 프롬프트 조립 | WorldSense 실제 영상 1편으로 확인 — official prompt 바이트 보존 |
 | 캐시 재조회 | 0.2ms (엔진 미호출) |
 
@@ -282,24 +323,46 @@ GPU 4장 · 스레드 8 · faster-whisper large-v3 fp16. 오디오 **308.8시간
 
 - AV-SpeakerBench의 "오디오 없음"은 데이터셋이 `visual_only/` 변종을 포함하기 때문입니다
 - **OmniDCBench는 89%가 중국어**입니다(zh 862 / en 99). 프롬프트는 영어이고 영어 캡션을 요구하므로, `transcribe`를 유지하면 모델이 중국어 transcript로 영어 캡션을 만들어야 합니다. Qwen3-Omni도 같은 조건이므로 공정성은 유지되지만 해석 시 알고 봐야 합니다
-- 크레딧 패턴 환각 의심 14건 / 발화 8,309건 (0.17%)
+- 크레딧 패턴 환각은 아래 별도 절에서 전수 집계했습니다 (214건 / 1.69%)
 
-### thinking 비활성화
+### thinking — 성능을 결정하는 변수
 
-Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 동일 질문 실측:
+Qwen3.8-27B의 chat template은 `<think>`를 기본으로 엽니다. 초기에는 껐지만, recommend config 측정에서 **thinking이 유일하게 유효한 변수**로 확인됐습니다 (+9.80 ~ +15.01). `extra_body.chat_template_kwargs.enable_thinking`으로 지정하므로 코드 변경은 없습니다.
 
-| 설정 | 응답 | 출력 토큰 |
+| 조건 | 생성 토큰 | 응답 형태 |
 | --- | --- | --- |
-| 기본 (thinking ON) | `We need answer multiple choice... green blue red black. Correct B... </think>\n\nB` | 35 |
-| `enable_thinking: false` | `B` | 2 |
+| `enable_thinking: false` | 2 ~ 5 | `B` |
+| `enable_thinking: true` | 1,869 ~ 3,914 | `...추론... </think>\n\nB` |
 
-켜두면 official parser가 추론 텍스트에 등장하는 선택지 문자열을 먼저 매칭할 위험이 있고, OmniDCBench의 JSON 배열 출력도 깨집니다. baseline인 Qwen3-Omni-30B-A3B-Instruct가 non-thinking인 점도 근거입니다. model config의 `extra_body.chat_template_kwargs`로 지정하므로 코드 변경은 없습니다.
+**official parser는 thinking 출력에 쓸 수 없습니다.** 첫 `[ABCD]` 문자를 집으므로 추론 텍스트에서 오답이 잡힙니다 — Video-MME thinking 런에서 official 27.70 대 개선 파서 77.33입니다. `scripts/rescore_mcq.py`의 `robust_extract`는 명시적 마커를 우선하고 없으면 마지막 단독 문자를 취하므로 `</think>` 뒤의 최종 답을 정확히 잡습니다 (추출 실패 2/2,700, 명시적 마커 포함 98.5%).
 
-### 알려진 문제 — Whisper 환각
+thinking은 두 가지 대가가 있습니다.
 
-발화가 없는 클립에서 Whisper가 자막 크레딧 패턴을 출력하는 경우가 있습니다. `audio_class: ['Music']`인 WorldSense 영상(`dvOkwKAs`, 60초 고쟁 연주)에서 `vad_filter: true` 상태로도 `© transcript Emily Beynon`이 나왔습니다.
+| 항목 | 내용 |
+| --- | --- |
+| 실행 시간 | 4 ~ 25배 (AV-SpeakerBench 8.1분 → 206.1분) |
+| 잘림 | `max_tokens` 8,192에서 4.4 ~ 13.9%가 최종 답 유실 → 32,768로 상향 필요. OmniDCBench는 캡션 JSON까지 겹쳐 60.8% |
 
-발화가 없는 클립에 존재하지 않는 정보가 주입되므로 cascade에 불리하게 작용합니다. `no_speech_threshold`, `hallucination_silence_threshold` 조정과 크레딧 패턴 후처리가 후보이며 아직 적용하지 않았습니다.
+### 알려진 문제 — Whisper 환각 (1.69%)
+
+발화가 없는 클립에서 Whisper가 자막 크레딧 패턴을 출력합니다. 캐시 12,660건 전수 조사:
+
+| 구분 | 건수 | 비율 |
+| --- | --- | --- |
+| 무발화로 정상 처리 (세그먼트 0) | 2,677 | 21.1% |
+| **환각 확정** (발화 총 길이 > 영상 길이) | **214** | **1.69%** |
+| 동일 문장 반복 루프 | 6 | 0.05% |
+
+```text
+영상  8.9초 / 발화 30.0초 (3.4배) · "Thank you for watching!"
+영상 13.2초 / 발화 30.0초 (2.3배) · "© transcript Emily Beynon"
+```
+
+발화 길이가 **정확히 30.0초**로 찍히는 것이 특징입니다 — Whisper의 30초 윈도우를 통째로 채운 것이고, 9초 영상에 30초 발화는 불가능합니다. 학습 데이터에 자동 자막이 대량 포함돼 무음에서 "영상 끝에 흔히 나오는 말"을 생성합니다.
+
+**미대응입니다.** 환각 전사가 한 문장(약 10 토큰)이고 프롬프트가 5,290 ~ 25,760이라 기여가 무시 가능하며, 내용에 정답 단서가 없습니다. 다만 무발화 영상에 "말이 있다"는 잘못된 신호를 주므로 화자 수를 묻는 항목에는 이론상 해롭습니다.
+
+거르려면 `발화 총 길이 > 영상 길이 × 1.05` 규칙 하나로 214건 전부 잡힙니다. 무발화 클립 비중이 높은 다운스트림에 적용할 때는 `format_transcript` 앞단에 넣는 것이 좋습니다.
 
 ## 환경 구축 — README 명령을 그대로 쓰면 안 된다
 
@@ -329,21 +392,61 @@ uv pip install --python <venv>/bin/python --no-deps "https://.../flash_attn-...w
 
 vLLM이 번들 커널(`vllm-flash-attn`)을 쓰기 때문에 외부 패키지 유무와 무관합니다. AV-SpeakerBench 정확도도 50.78 → 50.90으로 사실상 불변이고 `prompt_tokens`는 4,728 그대로입니다. 즉 이 설치는 재현성 관점에서 변수가 아닙니다.
 
-## 서버 위임 frame sampling은 재현되지 않는다
+## frame sampling — 서버 위임을 채택했다
 
-`configs/benchmarks/default.yaml`에서 AV-SpeakerBench와 OmniDCBench는 frame 수를 지정하지 않고 서버(모델 프로세서)의 기본 sampling에 맡깁니다. 같은 모델을 같은 코드로 다시 측정해 보면 이 두 benchmark만 리포트 수치와 어긋납니다.
+`frame_sampling: server`는 프레임을 클라이언트에서 뽑지 않고 원본 영상을 그대로 보내 모델 프로세서가 결정하게 합니다. 값은 모델 웨이트의 `video_preprocessor_config.json` 그대로입니다 — `fps 2` · `max_frames 768` · `min_frames 4` · `size.longest_edge 25,165,824` (**비디오 전체** 픽셀 예산).
 
-| Benchmark | 재현 | 리포트 | 차이 | frame sampling |
+핵심은 픽셀 예산이 프레임당이 아니라 비디오 전체에 걸린다는 점입니다. 해상도로 환산하면:
+
+| 해상도 | 프레임당 px | 예산에 들어가는 프레임 | 프레임당 토큰 |
+| --- | --- | --- | --- |
+| 1280×720 (720p 원본) | 921,600 | **27장** | 450 |
+| 854×480 (480p) | 409,920 | 61장 | 200 |
+| 640×360 (360p) | 230,400 | 109장 | 112 |
+| 480×256 | 122,880 | 204장 | 60 |
+| 224×128 | 28,672 | 877장 | 14 |
+
+720p를 지키면 27장밖에 못 보고, 768장을 채우려면 224×128까지 줄여야 합니다. 프로세서는 후자를 택합니다 — **공간 해상도를 팔아 시간 해상도를 삽니다.** 720p 원본 실측:
+
+| 영상 길이 | 요청 프레임 (fps 2) | 실제 프레임 | 프레임 해상도 | 비디오 토큰 |
 | --- | --- | --- | --- | --- |
-| OmniVideoBench | 41.10 | 41.20 | −0.10 | 클라이언트 |
-| WorldSense | 51.48 | 51.36 | +0.12 | 클라이언트 |
-| Video-MME | 69.67 | 70.19 | −0.52 | 클라이언트 |
-| OmniDCBench F1 | 68.53 | 71.99 | −3.46 | **서버** |
-| AV-SpeakerBench | 50.90 | 55.98 | −5.08 | **서버** |
+| 97초 | 194 | 194 | 256×480 | 11,640 |
+| 500초 | 1,000 | 768 (상한) | 128×224 | 10,752 |
+| 2,820초 | 5,639 | 768 (상한) | 128×224 | 10,752 |
 
-vLLM 버전(lock이 0.24.0으로 고정), HF dataset(최신 커밋이 7개월 전), 로컬 미디어, adapter/config, `--moe-backend`, `--max-model-len`, serve 시점 `mm-processor-kwargs`, transformers 버전, flash-attn을 모두 배제했습니다. `--max-model-len`을 지정하지 않아도 vLLM은 65536을 유도하고 `prompt_tokens` 평균이 4,728로 불변이라 frame 수가 바뀌지 않았습니다.
+**6.4분(384초)을 넘으면 프레임 수가 768에서 멈추고 해상도만 계속 깎입니다** — 500초와 2,820초의 해상도가 같습니다.
 
-즉 이 두 benchmark의 비주얼 입력은 harness가 고정하지 못하는 값에 달려 있습니다. **비교는 같은 시점에 측정한 값끼리만 유효합니다.** 서로 다른 날의 수치를 대조하려면 frame 수를 config에 명시해야 합니다 — 다만 그렇게 하면 기존 리포트 수치와의 비교가 끊어집니다.
+### 정확도 영향 — 순효과는 없고 부수 효과가 크다
+
+Video-MME 기준으로 evalkit 방식(프레임 64장 고정)과 비교하면 전체 정확도는 −1.00으로 분산 범위입니다. 다만 duration별로 갈립니다.
+
+| 구간 | evalkit 64장 | server | 차이 |
+| --- | --- | --- | --- |
+| short | 78.67 | 80.22 | +1.55 |
+| medium | 65.33 | 66.67 | +1.34 |
+| long | 59.67 | 53.78 | **−5.89** |
+
+long의 하락은 **공간 해상도 붕괴**에서 옵니다(128×224). task_type별로 보면 지각 과제에 집중됩니다.
+
+| 유형 | 대표 과제 | 차이 |
+| --- | --- | --- |
+| 지각 (무엇이 보이나) | Spatial Reasoning −18.2 · Object Recognition −16.7 · OCR −14.3 · Counting −12.5 | **−12 ~ −18** |
+| 추론 (무슨 일이 일어나나) | Action Reasoning +3.9 · Information Synopsis −2.5 · Temporal Reasoning −4.4 | −4 ~ +4 |
+
+128×224에서도 "사람이 걷다가 앉는다"는 추론은 되지만 "저 표지판에 뭐라고 쓰였나"는 불가능합니다. **thinking이 이 손실을 보상합니다** — long에서 non-think 53.78 → thinking 67.78 (+14.00).
+
+### 채택 이유 — 파싱 결함이 사라진다
+
+정확도가 아니라 측정 품질 때문입니다.
+
+| 항목 | evalkit 64장 | server |
+| --- | --- | --- |
+| 장문 응답 | 30.9% | **0.2%** |
+| official 대 robust 파서 차이 | **+12.30** | **+0.07** |
+| prompt 토큰 | 34,141 | **13,734** |
+| wall (Video-MME 2,700건) | 45.4분 | **20.5분** |
+
+evalkit 방식에서는 어느 파서를 쓰느냐로 12점이 갈렸고(55.59 대 67.89), Qwen3-Omni는 장문 응답이 0건이라 그 손실이 우리 모델에만 적용됐습니다. server 방식에서는 두 파서가 일치하므로 **모델 간 비교가 파서 선택에 좌우되지 않습니다.**
 
 ## Whisper와 vLLM은 같은 GPU에 올리지 않는다
 
@@ -384,9 +487,20 @@ adapter의 `extract_answer`는 접두어를 제거한 뒤 `re.search(r"[ABCD]")`
 | OmniVideoBench | 3 (0.3%) | 41.70 | 41.70 | 0.00 |
 | AV-SpeakerBench | 0 (0%) | 50.47 | 50.47 | 0.00 |
 
-AV-SpeakerBench가 정확히 동일하다는 점이 이것이 파서 일반의 문제가 아니라 특정 응답 형태에서만 발생함을 보여줍니다.
+AV-SpeakerBench가 정확히 동일하다는 점이 이것이 파서 일반의 문제가 아니라 특정 응답 형태에서만 발생함을 보여줍니다. Qwen3-Omni는 장문 응답이 0건이라 **결함이 우리 모델만 깎는 방향**으로 작동했습니다.
 
-기존 4개 omni 모델은 지시를 따라 단답을 냈으므로 이 함정에 걸리지 않았을 가능성이 큽니다. 즉 **결함이 신규 모델만 깎는 방향**으로 작동합니다. 두 수치를 함께 보고하고, 기존 모델의 저장된 응답이 남아 있으면 동일 기준으로 재채점해 비교하는 것이 가장 엄격합니다.
+### server frame sampling으로 해소됐다
+
+위 수치는 evalkit 방식(프레임 64장을 `image_url`로 전송)에서 측정한 것입니다. recommend config로 바꾸면 이 결함이 사라집니다.
+
+| 조건 | 장문 응답 | official | robust | 차이 |
+| --- | --- | --- | --- | --- |
+| evalkit 64장 | 30.9% | 55.59 | 67.89 | **+12.30** |
+| **server (non-think)** | **0.2%** | **66.81** | **66.89** | **+0.07** |
+
+비디오로 전송하면 모델이 지시를 따라 단답을 냅니다. 원인은 확정하지 못했지만 이미지 64장 나열이 지시 준수를 방해한 것으로 보입니다.
+
+**thinking 런에서는 다시 필요합니다.** thinking은 출력이 100% 장문이므로 official parser로는 27.70, `robust_extract`로는 77.33입니다. `</think>` 뒤에 단답이 오는 구조라 명시적 마커 포함률이 98.5%이고 추출 실패는 2,700건 중 2건입니다.
 
 ## frame당 토큰 — 두 모델이 같다
 
@@ -403,14 +517,14 @@ AV-SpeakerBench가 정확히 동일하다는 점이 이것이 파서 일반의 �
 
 ### frame을 이미지로 보내면 temporal 병합이 사라진다
 
-Video-MME adapter는 frame 64장을 `image_url` 파트 64개로 보냅니다(`video_url` 0개). `image_processing_qwen2_vl.py`는 이미지 1장을 `temporal_patch_size`만큼 복제해 채우고 temporal grid를 1로 고정하므로, frame 간 병합이 일어나지 않습니다.
+evalkit 방식에서 Video-MME adapter는 frame 64장을 `image_url` 파트 64개로 보냈습니다(`video_url` 0개). recommend config는 `video_path`를 보내므로 아래 문제가 없습니다. `image_processing_qwen2_vl.py`는 이미지 1장을 `temporal_patch_size`만큼 복제해 채우고 temporal grid를 1로 고정하므로, frame 간 병합이 일어나지 않습니다.
 
 | 전송 방식 | temporal grid | 토큰 |
 | --- | --- | --- |
-| `image_url` × 64 (현재) | 64 | 약 34,100 |
-| `video_url` 1개 (64 frame) | 32 | 약 17,000 |
+| `image_url` × 64 (evalkit) | 64 | 약 34,100 |
+| `video_path` (server, 실측) | 97 | **13,734** |
 
-즉 같은 정보를 2배 토큰으로 넣고, 인코더는 frame 간 시간 관계를 받지 못합니다. mRoPE의 temporal 축도 video 입력에서만 제대로 쓰입니다. 양쪽 모델이 동일 방식이므로 비교는 공정하지만, temporal 계열 항목의 절대 수치는 이 구조에 영향받습니다.
+즉 evalkit 방식은 같은 정보를 2배 토큰으로 넣고, 인코더는 frame 간 시간 관계를 받지 못했습니다. mRoPE의 temporal 축도 video 입력에서만 제대로 쓰입니다. recommend config에서는 프레임이 194장으로 3배 늘었는데도 토큰이 40%로 줄었습니다 — temporal 병합과 비디오 전체 픽셀 예산이 함께 작용한 결과입니다.
 
 ## 스모크 테스트
 

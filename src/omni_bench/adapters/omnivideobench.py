@@ -179,8 +179,12 @@ def run_single_item(
             video_url=None if server_side else sampled_video["data_url"],
             video_path=item["video_path"] if server_side else None,
             audio_path=audio_path if audio_path else None,
-            max_tokens=int(benchmark.extra.get("max_tokens", 1024)),
-            temperature=float(benchmark.extra.get("temperature", 0.7)),
+            # max_tokens/temperature 는 BenchmarkConfig 의 정식 필드다. extra 에서
+            # 읽으면 _split_known() 이 이미 빼내 갔으므로 항상 하드코딩 기본값이
+            # 쓰여, 설정 파일의 값이 조용히 무시된다 (thinking 런이 1024 에서
+            # 잘린 원인). 다른 어댑터와 동일하게 타입 필드를 쓴다.
+            max_tokens=benchmark.max_tokens,
+            temperature=benchmark.temperature,
             top_p=benchmark.extra.get("top_p"),
             do_sample=bool(benchmark.extra.get("do_sample", True)),
             system_prompt=benchmark.extra.get(

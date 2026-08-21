@@ -1,0 +1,37 @@
+# non-thinking 벤치 설정 · frame_sampling: server
+# recommend config — docs/qwen3.8_plan.md 참고
+benchmarks:
+- name: worldsense
+  data_path: /gpfs/public/datasets/WorldSense
+  annotation_file: /gpfs/public/datasets/WorldSense/worldsense_qa.json
+  video_dir: /gpfs/public/datasets/WorldSense/videos
+  max_tokens: 4096
+  temperature: 0.7
+  concurrency: 12
+  frame_sampling: server
+- name: omnivideobench
+  annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
+  video_dir: /gpfs/public/datasets/OmniVideoBench
+  max_tokens: 4096
+  temperature: 0.7
+  do_sample: true
+  max_workers: 12
+  preprocess_workers: 8
+  preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
+  frame_sampling: server
+- name: av_speakerbench
+  data_path: /gpfs/public/datasets/AV-SpeakerBench/
+  split: test
+  mode: av
+  max_tokens: 4096
+  temperature: 0.7
+  concurrency: 12
+- name: omnidcbench
+  data_path: /gpfs/public/datasets/OmniDCBench
+  annotation_file: /gpfs/public/datasets/OmniDCBench/ours_gt_file.json
+  video_dir: /gpfs/public/datasets/OmniDCBench/Video
+  max_tokens: 16384
+  temperature: 0.7
+  concurrency: 12
+  max_workers: 4
+  enable_sodam: false

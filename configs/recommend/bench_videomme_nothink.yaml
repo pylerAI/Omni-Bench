@@ -1,0 +1,13 @@
+# Video-MME non-thinking 벤치 설정
+# max_tokens 8,192 는 실제 측정에 쓴 값이다(non-think 출력은 2~5토큰이라 무관).
+# recommend config — docs/qwen3.8_plan.md 참고
+benchmarks:
+- name: videomme
+  annotation_file: /gpfs/public/datasets/Video-MME/videomme/test-00000-of-00001.parquet
+  video_dir: /gpfs/public/datasets/Video-MME/data
+  max_tokens: 8192
+  temperature: 0.7
+  use_subtitles: false
+  audio_mode: none
+  frame_sampling: server
+  concurrency: 12

@@ -1,0 +1,16 @@
+# Video-MME non-thinking · ASR 미주입
+# recommend config — docs/qwen3.8_plan.md 참고
+models:
+- served_model_name: Qwen3.8-27B
+  weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
+  base_url: http://127.0.0.1:8001/v1
+  audio_mode: none
+  name: qwen3.8-27b-srv-nothink
+  extra_body:
+    top_p: 0.8
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    chat_template_kwargs:
+      enable_thinking: false

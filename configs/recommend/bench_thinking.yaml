@@ -1,0 +1,38 @@
+# 4종 thinking 벤치 설정 · frame_sampling: server
+# max_tokens 는 보완 런 기준(32,768). 8,192 로는 4.4~13.9% 가 추론 중 끊겨
+# 최종 답이 유실된다 — docs/qwen3_8_whisper.md 의 '잘린 건 보완' 참고.
+benchmarks:
+- name: worldsense
+  data_path: /gpfs/public/datasets/WorldSense
+  annotation_file: /gpfs/public/datasets/WorldSense/worldsense_qa.json
+  video_dir: /gpfs/public/datasets/WorldSense/videos
+  max_tokens: 32768
+  temperature: 1.0
+  concurrency: 12
+  frame_sampling: server
+- name: omnivideobench
+  annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
+  video_dir: /gpfs/public/datasets/OmniVideoBench
+  max_tokens: 32768
+  temperature: 1.0
+  do_sample: true
+  max_workers: 12
+  preprocess_workers: 8
+  preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
+  frame_sampling: server
+- name: av_speakerbench
+  data_path: /gpfs/public/datasets/AV-SpeakerBench/
+  split: test
+  mode: av
+  max_tokens: 32768
+  temperature: 1.0
+  concurrency: 12
+- name: omnidcbench
+  data_path: /gpfs/public/datasets/OmniDCBench
+  annotation_file: /gpfs/public/datasets/OmniDCBench/ours_gt_file.json
+  video_dir: /gpfs/public/datasets/OmniDCBench/Video
+  max_tokens: 49152
+  temperature: 1.0
+  concurrency: 12
+  max_workers: 4
+  enable_sodam: false

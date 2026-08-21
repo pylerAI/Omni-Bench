@@ -1,0 +1,29 @@
+# 4종 non-thinking · Whisper ASR 주입
+# recommend config — docs/qwen3.8_plan.md 참고
+models:
+- name: qwen3.8-27b-whisper-srvnothink
+  served_model_name: Qwen3.8-27B
+  weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
+  base_url: http://127.0.0.1:8001/v1
+  audio_mode: asr_text
+  extra_body:
+    top_p: 0.8
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    chat_template_kwargs:
+      enable_thinking: false
+  asr:
+    strategy:
+      name: faster_whisper
+      model: Systran/faster-whisper-large-v3
+      device: cuda
+      device_index: 0
+      compute_type: float16
+      options:
+        beam_size: 5
+        vad_filter: true
+        condition_on_previous_text: false
+    cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+    strict_cache: true

@@ -1,0 +1,12 @@
+# Video-MME thinking 벤치 설정
+# recommend config — docs/qwen3.8_plan.md 참고
+benchmarks:
+- name: videomme
+  annotation_file: /gpfs/public/datasets/Video-MME/videomme/test-00000-of-00001.parquet
+  video_dir: /gpfs/public/datasets/Video-MME/data
+  max_tokens: 32768
+  temperature: 1.0
+  use_subtitles: false
+  audio_mode: none
+  frame_sampling: server
+  concurrency: 12
