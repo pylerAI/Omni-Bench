@@ -1,6 +1,6 @@
 # Video-MME
 
-## 공식 링크
+## Official Links
 
 - Official GitHub: [MME-Benchmarks/Video-MME](https://github.com/MME-Benchmarks/Video-MME)
 - arXiv: [Video-MME: The First-Ever Comprehensive Evaluation Benchmark of Multi-modal LLMs in Video Analysis](https://arxiv.org/abs/2405.21075)
@@ -9,49 +9,49 @@
 
 ![Video-MME model results](assets/videomme_results_of_various_models.png)
 
-## 목적
+## Purpose
 
-Video-MME는 long-video multimodal understanding benchmark입니다. short, medium, long video 구간별 long-video 이해 성능을 확인하는 데 적합합니다.
+Video-MME is a long-video multimodal understanding benchmark. It is well suited to checking long-video comprehension across short, medium, and long duration groups.
 
-## 데이터셋
+## Dataset
 
 - Local path: `/gpfs/public/datasets/Video-MME/`
 - Official repo: `submodules/Video-MME`
-- 900개 video
-- 2,700개 human-annotated multiple-choice QA pair
-- short, medium, long duration group 포함
+- 900 videos
+- 2,700 human-annotated multiple-choice QA pairs
+- Includes short, medium, and long duration groups
 
 ![Video-MME dataset statistics](assets/videomme_statistics.jpg)
 
-## 평가 방식
+## Evaluation Method
 
-adapter는 official evaluation script가 기대하는 nested response format에 맞춰 `official_results.json`을 저장합니다. accuracy는 official Video-MME evaluator로 계산하는 것을 기준으로 합니다.
+The adapter writes `official_results.json` in the nested response format expected by the official evaluation script. Accuracy is defined as what the official Video-MME evaluator computes.
 
-`use_subtitles: true`일 때는 prompt 앞에 subtitle text를 포함합니다. 기본값은 `false`입니다. adapter는 모델 응답을 official `output_test_template.json`과 같은 nested JSON 구조의 `official_results.json`으로 저장하고, accuracy는 official evaluator로 계산합니다.
+When `use_subtitles: true`, the subtitle text is prepended to the prompt; the default is `false`. The adapter stores model responses as `official_results.json`, a nested JSON structure matching the official `output_test_template.json`, and accuracy is computed by the official evaluator.
 
 ## Throughput
 
-Video-MME adapter는 accuracy만 측정합니다. Video-MME의 입력은 프레임을 client-side에서 샘플링하므로 처리량이 model이 아닌 frame 디코딩(CPU)에 좌우되어, 모델 throughput 지표로는 부적합합니다. 모델 생성 throughput은 `vllm bench throughput`으로 별도 측정하며 (`results/throughput.json`, HTML 리포트의 Model throughput 섹션 참고), input/output 길이를 고정한 text-generation 기준으로 양자화 variant 간 속도를 공정하게 비교합니다.
+The Video-MME adapter measures accuracy only. Video-MME inputs are sampled into frames on the client side, so throughput is bound by frame decoding (CPU) rather than by the model, which makes it unsuitable as a model throughput metric. Model generation throughput is measured separately with `vllm bench throughput` (see `results/throughput.json` and the Model throughput section of the HTML report), which fixes input/output lengths for a fair text-generation speed comparison across quantization variants.
 
-## Accuracy Metric
+## Accuracy Metrics
 
-정확도는 official evaluator를 기준으로 계산합니다.
+Accuracy is computed with the official evaluator as the reference.
 
-| Metric | 평가 목적 |
+| Metric | What it measures |
 | --- | --- |
-| Overall accuracy | 전체 MCQ 성능 |
-| Duration accuracy | short/medium/long video별 long-context 성능 |
-| Domain accuracy | visual domain별 성능 차이 |
-| Sub-category accuracy | 세부 주제별 취약점 분석 |
-| Task-type accuracy | counting, action reasoning, information synopsis 등 task 유형별 성능 |
+| Overall accuracy | Overall MCQ performance |
+| Duration accuracy | Long-context performance on short/medium/long videos |
+| Domain accuracy | Performance differences across visual domains |
+| Sub-category accuracy | Weak-point analysis by fine-grained topic |
+| Task-type accuracy | Performance per task type, such as counting, action reasoning, and information synopsis |
 
-## 최종 Output Metric Table
+## Final Output Metric Table
 
-Video-MME accuracy는 official evaluator output을 기준으로 정리합니다.
+Video-MME accuracy is reported from the official evaluator output.
 
 | Model | Size | Overall | Short | Medium | Long | Knowledge | Film & TV | Sports | Artistic Performance | Life Record | Multilingual |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Qwen3-Omni | 30B | - | - | - | - | - | - | - | - | - | - |
 | Nemotron-3-Nano-Omni | 30B | - | - | - | - | - | - | - | - | - | - |
 
-official evaluator 입력 파일은 `official_results.json`, per-question raw record는 `records.jsonl`에 저장합니다.
+The official evaluator input file is `official_results.json`; per-question raw records are stored in `records.jsonl`.
