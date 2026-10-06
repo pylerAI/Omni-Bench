@@ -90,7 +90,11 @@ class WorldSenseAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or data_root / "videos").expanduser()
         cache_dir = Path(benchmark.extra.get("preprocess_cache_dir", data_root / "preprocess_cache")).expanduser()
 
-        rows = apply_limit(self._flatten(read_worldsense_json(annotation_file), video_dir), benchmark.limit)
+        rows = apply_limit(
+            self._flatten(read_worldsense_json(annotation_file), video_dir),
+            benchmark.limit,
+            benchmark.extra.get("limit_mode"),
+        )
         records_path = output_dir / "records.jsonl"
         records, done = load_resumable_records(records_path, worldsense_key)
         num_frames = int(benchmark.extra.get("num_frames", 8))

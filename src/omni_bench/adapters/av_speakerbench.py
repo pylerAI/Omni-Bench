@@ -30,7 +30,7 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
         dataset_name = benchmark.extra.get("dataset_name", "plnguyen2908/Holistic_AVQA_bench")
         rows = list(load_dataset(dataset_name, split=benchmark.split))
         rows = self._filter(rows, benchmark)
-        rows = apply_limit(rows, benchmark.limit)
+        rows = apply_limit(rows, benchmark.limit, benchmark.extra.get("limit_mode"))
 
         data_root = Path(benchmark.data_path or ".").expanduser()
         records_path = output_dir / "records.jsonl"

@@ -36,7 +36,7 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
             raise ValueError("OmniVideoBench requires annotation_file in config.")
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         items = self._flatten(load_annotation(Path(benchmark.annotation_file)), video_dir)
-        items = apply_limit(items, benchmark.limit)
+        items = apply_limit(items, benchmark.limit, benchmark.extra.get("limit_mode"))
         max_frames = int(benchmark.extra.get("max_frames", benchmark.extra.get("num_frames", 120)))
         fps = float(benchmark.extra.get("fps", 2.0))
         max_workers = int(benchmark.extra.get("max_workers", 2))

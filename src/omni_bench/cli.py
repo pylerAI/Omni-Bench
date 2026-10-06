@@ -34,7 +34,9 @@ def main() -> None:
     run_parser.add_argument("--benchmark", action="append", help="Benchmark name to run. Repeatable.")
     run_parser.add_argument("--serve", action="store_true", help="Start vLLM serve for each model before evaluation.")
     run_parser.add_argument("--limit", type=int, default=None,
-                            help="Evaluate only the first N items of each benchmark (overrides config).")
+                            help="Evaluate only N items of each benchmark (overrides config).")
+    run_parser.add_argument("--limit-mode", choices=("head", "spread"), default=None,
+                            help="With --limit: first N items (head) or N evenly spaced items (spread).")
     run_parser.add_argument("--result-dir", default=None,
                             help="Override global.result_dir (e.g. a separate smoke-test root).")
 
@@ -64,6 +66,9 @@ def run(args: argparse.Namespace) -> None:
     if args.limit is not None:
         for benchmark in benchmarks:
             benchmark.limit = args.limit
+    if args.limit_mode is not None:
+        for benchmark in benchmarks:
+            benchmark.extra["limit_mode"] = args.limit_mode
     run_summary: dict[str, dict[str, object]] = {}
     # Shared across benchmarks so an STT engine is loaded at most once per config.
     asr_pool = AsrCommandPool()

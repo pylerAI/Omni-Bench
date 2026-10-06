@@ -13,7 +13,7 @@ from typing import Any
 import cv2
 from tqdm import tqdm
 
-from omni_bench.adapters.base import BenchmarkAdapter
+from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
 from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
@@ -37,8 +37,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         official = deepcopy(load_videomme_annotation(benchmark.annotation_file))
         flat = self._flatten(official, video_dir)
-        if benchmark.limit is not None:
-            flat = flat[: benchmark.limit]
+        flat = apply_limit(flat, benchmark.limit, benchmark.extra.get("limit_mode"))
 
         num_frames = int(benchmark.extra.get("max_frames", 64))
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))

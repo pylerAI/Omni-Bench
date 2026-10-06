@@ -23,7 +23,24 @@ class BenchmarkAdapter(ABC):
         raise NotImplementedError
 
 
-def apply_limit(items: list[Any], limit: int | None) -> list[Any]:
-    if limit is None:
+LIMIT_MODES = ("head", "spread")
+
+
+def apply_limit(items: list[Any], limit: int | None, mode: str | None = None) -> list[Any]:
+    """First ``limit`` items, or (``spread``) ``limit`` evenly spaced ones.
+
+    ``spread`` gives a smoke subset that covers the whole dataset (e.g. every
+    Video-MME duration bucket) instead of only its first, shortest clips; the
+    choice is deterministic so a resumed run picks the same items.
+    """
+    if limit is None or limit >= len(items):
         return items
-    return items[:limit]
+    mode = (mode or "head").lower()
+    if mode == "head":
+        return items[:limit]
+    if mode == "spread":
+        if limit <= 0:
+            return []
+        step = len(items) / limit
+        return [items[int(i * step)] for i in range(limit)]
+    raise ValueError(f"Unknown limit_mode '{mode}'. Known: {list(LIMIT_MODES)}")
