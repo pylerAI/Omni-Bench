@@ -8,6 +8,11 @@ from typing import Any
 from openai import OpenAI
 
 from omni_bench.config import ModelConfig
+from omni_bench.video_transport import VIDEO_TRANSPORTS, TranscodeSettings, video_data_url
+
+#: Per-request processor/IO overrides. Servers that reject them outright (HTTP
+#: 400) need the keys gone, not just set to False — see ``strip_mm_kwargs``.
+MM_KWARG_KEYS = ("mm_processor_kwargs", "media_io_kwargs")
 
 
 @dataclass(slots=True)
@@ -17,6 +22,29 @@ class ChatCompletionResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    reasoning: str | None = None
+    finish_reason: str | None = None
+
+    def meta(self) -> dict[str, Any]:
+        """Fields every adapter stores alongside its own record fields."""
+        return {
+            "latency_s": self.latency_s,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "finish_reason": self.finish_reason,
+            "reasoning": self.reasoning,
+        }
+
+
+def _reasoning_of(message: Any) -> str | None:
+    """vLLM returns reasoning outside ``content``; the field name varies by version."""
+    for name in ("reasoning", "reasoning_content"):
+        value = getattr(message, name, None)
+        if value:
+            return value
+    extra = getattr(message, "model_extra", None) or {}
+    return extra.get("reasoning") or extra.get("reasoning_content")
 
 
 def file_url(path: str | Path) -> str:
@@ -49,6 +77,18 @@ class VllmChatClient:
             api_key=model.api_key,
             timeout=self.timeout_s,
         )
+        self.video_transport = str(model.extra.get("video_transport", "file")).lower()
+        if self.video_transport not in VIDEO_TRANSPORTS:
+            raise ValueError(
+                f"Unknown video_transport '{self.video_transport}'. Known: {list(VIDEO_TRANSPORTS)}"
+            )
+        self.transcode = TranscodeSettings.from_dict(model.extra.get("transcode"))
+        self.strip_mm_kwargs = bool(model.extra.get("strip_mm_kwargs", False))
+
+    def video_part_url(self, video_path: str | Path) -> str:
+        if self.video_transport == "base64":
+            return video_data_url(video_path, self.transcode)
+        return file_url(video_path)
 
     def complete(
         self,
@@ -72,7 +112,7 @@ class VllmChatClient:
             content.append(
                 {
                     "type": "video_url",
-                    "video_url": {"url": video_url or file_url(video_path)},  # type: ignore[arg-type]
+                    "video_url": {"url": video_url or self.video_part_url(video_path)},  # type: ignore[arg-type]
                 }
             )
         if audio_path:
@@ -90,6 +130,9 @@ class VllmChatClient:
             body["top_p"] = top_p
         if do_sample is not None:
             body["do_sample"] = do_sample
+        if self.strip_mm_kwargs:
+            for key in MM_KWARG_KEYS:
+                body.pop(key, None)
         response = self.client.chat.completions.create(
             model=self.model.api_model_name,
             messages=messages,
@@ -98,7 +141,8 @@ class VllmChatClient:
             extra_body=body or None,
         )
         latency_s = time.perf_counter() - started
-        text = response.choices[0].message.content or ""
+        choice = response.choices[0]
+        text = choice.message.content or ""
         usage = response.usage
         return ChatCompletionResult(
             text=text,
@@ -106,4 +150,6 @@ class VllmChatClient:
             prompt_tokens=usage.prompt_tokens if usage else None,
             completion_tokens=usage.completion_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,
+            reasoning=_reasoning_of(choice.message),
+            finish_reason=getattr(choice, "finish_reason", None),
         )
