@@ -18,7 +18,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
@@ -46,8 +46,9 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         ).expanduser()
 
         records_path = output_dir / "records.jsonl"
-        existing_records = read_jsonl_records(records_path)
-        done = {str(record.get("question_id")) for record in existing_records}
+        existing_records, done = load_resumable_records(
+            records_path, lambda r: str(r.get("question_id"))
+        )
         pending_items = [item for item in items if str(item.get("question_id")) not in done]
 
         cache_by_video = preprocess_videos(
@@ -212,10 +213,7 @@ def run_single_item(
             "response": response,
             "parsed_answer": parsed,
             "is_correct": clean_text(parsed) == clean_text(item["answer"]),
-            "latency_s": completion.latency_s,
-            "prompt_tokens": completion.prompt_tokens,
-            "completion_tokens": completion.completion_tokens,
-            "total_tokens": completion.total_tokens,
+            **completion.meta(),
             "sampled_num_frames": sampled_video["num_frames"],
             "audio_path": audio_path,
             "preprocess_cache_path": str(cache_path),

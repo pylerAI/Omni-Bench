@@ -18,7 +18,7 @@ from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
 from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
@@ -64,8 +64,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
         ).expanduser()
 
         records_path = output_dir / "records.jsonl"
-        records = read_jsonl_records(records_path)
-        done = {str(record.get("question_id")) for record in records}
+        records, done = load_resumable_records(records_path, lambda r: str(r.get("question_id")))
         existing_response = {str(record.get("question_id")): record.get("response") for record in records}
         for item in flat:
             qid = str(item["question_id"])
@@ -177,10 +176,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
             return {
                 **base,
                 "response": completion.text,
-                "latency_s": completion.latency_s,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
+                **completion.meta(),
             }
 
         response_by_qid: dict[str, str] = {}

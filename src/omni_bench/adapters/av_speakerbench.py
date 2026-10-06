@@ -13,7 +13,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, load_existing_keys, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, summarize_accuracy, write_json
 
 
 class AVSpeakerBenchAdapter(BenchmarkAdapter):
@@ -34,8 +34,7 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
 
         data_root = Path(benchmark.data_path or ".").expanduser()
         records_path = output_dir / "records.jsonl"
-        records = read_jsonl_records(records_path)
-        done = load_existing_keys(records_path, "question_id")
+        records, done = load_resumable_records(records_path, lambda r: str(r.get("question_id")))
         pending = [row for row in rows if str(row.get("question_id")) not in done]
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
 
@@ -49,17 +48,7 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "The best answer is:"
             )
             media_path = self._media_path(data_root, row, benchmark.mode)
-            completion = client.complete(
-                prompt,
-                video_path=media_path if benchmark.mode != "audio" else None,
-                audio_path=media_path if benchmark.mode == "audio" else None,
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-                extra_body=extra_body_for_mode(benchmark.mode),
-            )
-            response = completion.text
-            parsed = extract_characters_regex(response)
-            return {
+            base = {
                 "question_id": row.get("question_id"),
                 "video_id": row.get("video_id"),
                 "category": row.get("category"),
@@ -67,14 +56,30 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "task_id": row.get("task_id"),
                 "prompt": prompt,
                 "answer": row.get("answer"),
+                "media_path": str(media_path),
+            }
+            try:
+                completion = client.complete(
+                    prompt,
+                    video_path=media_path if benchmark.mode != "audio" else None,
+                    audio_path=media_path if benchmark.mode == "audio" else None,
+                    max_tokens=benchmark.max_tokens,
+                    temperature=benchmark.temperature,
+                    extra_body=extra_body_for_mode(benchmark.mode),
+                )
+            except Exception as exc:
+                # One failed request must not abort the run; the error record
+                # is retried on the next invocation (see load_resumable_records).
+                return {**base, "response": "", "parsed_answer": "", "is_correct": False,
+                        "latency_s": None, "error": f"{type(exc).__name__}: {exc}"}
+            response = completion.text
+            parsed = extract_characters_regex(response)
+            return {
+                **base,
                 "response": response,
                 "parsed_answer": parsed,
                 "is_correct": parsed == row.get("answer"),
-                "latency_s": completion.latency_s,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
-                "media_path": str(media_path),
+                **completion.meta(),
             }
 
         write_lock = threading.Lock()

@@ -17,7 +17,7 @@ from tqdm import tqdm
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, summarize_accuracy, write_json
 
 
 SYS = (
@@ -92,8 +92,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
 
         rows = apply_limit(self._flatten(read_worldsense_json(annotation_file), video_dir), benchmark.limit)
         records_path = output_dir / "records.jsonl"
-        records = read_jsonl_records(records_path)
-        done = {worldsense_key(record) for record in records}
+        records, done = load_resumable_records(records_path, worldsense_key)
         num_frames = int(benchmark.extra.get("num_frames", 8))
         # "server" hands the raw video over and lets the model's own processor
         # sample it, the way AV-SpeakerBench and OmniDCBench already work.
@@ -115,19 +114,25 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     "latency_s": None,
                     "error": f"Video file not found: {video_path}",
                 }
-            # Frame sampling + audio extraction is CPU/IO-bound; running rows
-            # concurrently overlaps it with GPU inference and uses all DP replicas.
-            media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
-            server_side = frame_sampling == "server"
-            completion = client.complete(
-                prompt,
-                image_urls=None if server_side else media["image_urls"],
-                video_path=video_path if server_side else None,
-                audio_path=media["audio_path"],
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-                system_prompt=SYS,
-            )
+            try:
+                # Frame sampling + audio extraction is CPU/IO-bound; running rows
+                # concurrently overlaps it with GPU inference and uses all DP replicas.
+                media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
+                server_side = frame_sampling == "server"
+                completion = client.complete(
+                    prompt,
+                    image_urls=None if server_side else media["image_urls"],
+                    video_path=video_path if server_side else None,
+                    audio_path=media["audio_path"],
+                    max_tokens=benchmark.max_tokens,
+                    temperature=benchmark.temperature,
+                    system_prompt=SYS,
+                )
+            except Exception as exc:
+                # Retried on the next invocation (see load_resumable_records).
+                return {**row, "prompt": prompt, "response": "", "parsed_answer": "",
+                        "is_correct": False, "score": -1, "latency_s": None,
+                        "error": f"{type(exc).__name__}: {exc}"}
             response = completion.text
             parsed = extract_characters_regex(response)
             return {
@@ -137,10 +142,7 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 "parsed_answer": parsed,
                 "is_correct": parsed == row["answer"],
                 "score": int(parsed == row["answer"]) if parsed else -1,
-                "latency_s": completion.latency_s,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
+                **completion.meta(),
                 "preprocess_cache_path": str(media["cache_path"]),
             }
 
