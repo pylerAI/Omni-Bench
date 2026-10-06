@@ -36,6 +36,7 @@ from omni_bench.asr.schema import (
     iter_media_files,
 )
 from omni_bench.asr import vllm_asr as _vllm_asr  # noqa: F401  (registers vllm_asr)
+from omni_bench.asr import nemo_streaming as _nemo_streaming  # noqa: F401  (registers nemo_streaming)
 from omni_bench.asr.strategies import (
     SttStrategy,
     StrategySpec,
