@@ -129,9 +129,12 @@ class AsrTextChatClient(NoAudioChatClient):
         **kwargs: Any,
     ) -> ChatCompletionResult:
         source = self._audio_source(audio_path, video_path)
-        if source is not None:
-            prompt = f"{self.transcript_block(source)}\n\n{prompt}"
-        return super().complete(prompt, audio_path=None, video_path=video_path, **kwargs)
+        block = self.transcript_block(source) if source is not None else None
+        if block is not None:
+            prompt = f"{block}\n\n{prompt}"
+        result = super().complete(prompt, audio_path=None, video_path=video_path, **kwargs)
+        result.asr_chars = len(block) if block is not None else None
+        return result
 
 
 AUDIO_MODES = ("native", "none", "asr_text")

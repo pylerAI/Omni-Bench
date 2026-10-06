@@ -24,6 +24,8 @@ class ChatCompletionResult:
     total_tokens: int | None = None
     reasoning: str | None = None
     finish_reason: str | None = None
+    #: Length of the ASR transcript block prepended to the prompt (asr_text mode).
+    asr_chars: int | None = None
 
     def meta(self) -> dict[str, Any]:
         """Fields every adapter stores alongside its own record fields."""
@@ -34,6 +36,7 @@ class ChatCompletionResult:
             "total_tokens": self.total_tokens,
             "finish_reason": self.finish_reason,
             "reasoning": self.reasoning,
+            "asr_chars": self.asr_chars,
         }
 
 
