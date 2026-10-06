@@ -9,14 +9,14 @@ benchmarks:
   use_subtitles: false
   audio_mode: none          # official 프로토콜: audio 미사용 → transcript 주입 없음
   frame_sampling: server
-  concurrency: 48
+  concurrency: 96
 - name: worldsense
   data_path: /gpfs/public/datasets/WorldSense
   annotation_file: /gpfs/public/datasets/WorldSense/worldsense_qa.json
   video_dir: /gpfs/public/datasets/WorldSense/videos
   max_tokens: 32768
   temperature: 1.0
-  concurrency: 48
+  concurrency: 96
   frame_sampling: server
 - name: omnivideobench
   annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
@@ -24,7 +24,7 @@ benchmarks:
   max_tokens: 32768
   temperature: 1.0
   do_sample: true
-  max_workers: 48
+  max_workers: 96
   preprocess_workers: 8
   preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
   frame_sampling: server
@@ -36,4 +36,4 @@ benchmarks:
   mode: av
   max_tokens: 32768
   temperature: 1.0
-  concurrency: 48
+  concurrency: 96
