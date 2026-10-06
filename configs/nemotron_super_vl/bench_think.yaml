@@ -1,0 +1,39 @@
+# Nemotron-3.5-Super-VL thinking 벤치 설정 — Qwen3.8 srvthink_bench.yaml /
+# vmme_srv_* 와 동일 구성. 차이: temperature 1.0 (Nemotron 공식), max_tokens 32768.
+benchmarks:
+- name: videomme
+  annotation_file: /gpfs/public/datasets/Video-MME/videomme/test-00000-of-00001.parquet
+  video_dir: /gpfs/public/datasets/Video-MME/data
+  max_tokens: 32768
+  temperature: 1.0
+  use_subtitles: false
+  audio_mode: none          # official 프로토콜: audio 미사용 → transcript 주입 없음
+  frame_sampling: server
+  concurrency: 12
+- name: worldsense
+  data_path: /gpfs/public/datasets/WorldSense
+  annotation_file: /gpfs/public/datasets/WorldSense/worldsense_qa.json
+  video_dir: /gpfs/public/datasets/WorldSense/videos
+  max_tokens: 32768
+  temperature: 1.0
+  concurrency: 12
+  frame_sampling: server
+- name: omnivideobench
+  annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
+  video_dir: /gpfs/public/datasets/OmniVideoBench
+  max_tokens: 32768
+  temperature: 1.0
+  do_sample: true
+  max_workers: 12
+  preprocess_workers: 8
+  preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
+  frame_sampling: server
+  # system_prompt 미지정 → 어댑터 기본값("You are Qwen, ...")을 그대로 쓴다.
+  # Qwen3.8 · Nemotron-Omni 런과 동일 조건을 유지하기 위함.
+- name: av_speakerbench
+  data_path: /gpfs/public/datasets/AV-SpeakerBench/
+  split: test
+  mode: av
+  max_tokens: 32768
+  temperature: 1.0
+  concurrency: 12
