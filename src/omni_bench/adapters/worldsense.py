@@ -135,15 +135,10 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 return {**row, "prompt": prompt, "response": "", "parsed_answer": "",
                         "is_correct": False, "score": -1, "latency_s": None,
                         "error": f"{type(exc).__name__}: {exc}"}
-            response = completion.text
-            parsed = extract_characters_regex(response)
+            record = {**row, "prompt": prompt, "response": completion.text}
             return {
-                **row,
-                "prompt": prompt,
-                "response": response,
-                "parsed_answer": parsed,
-                "is_correct": parsed == row["answer"],
-                "score": int(parsed == row["answer"]) if parsed else -1,
+                **record,
+                **self.parse_record(record),
                 **completion.meta(),
                 "preprocess_cache_path": str(media["cache_path"]),
             }
@@ -157,6 +152,18 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     records.append(record)
                     append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_characters_regex(record.get("response") or "")
+        return {
+            "parsed_answer": parsed,
+            "is_correct": parsed == record["answer"],
+            "score": int(parsed == record["answer"]) if parsed else -1,
+        }
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
         summary["missing_videos"] = sum(1 for row in records if row.get("error"))
         summary["vlmeval_rating_file"] = str(output_dir / "vlmeval_rating.json")

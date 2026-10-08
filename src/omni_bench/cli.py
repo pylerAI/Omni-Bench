@@ -46,6 +46,17 @@ def main() -> None:
     serve_parser.add_argument("--model", required=True, help="Model name in config.")
     serve_parser.add_argument("--print-only", action="store_true", help="Print the command without running it.")
 
+    rescore_parser = subparsers.add_parser(
+        "rescore", help="Re-parse and re-summarize a stored model run (no inference).")
+    rescore_parser.add_argument("--run-dir", required=True, help="Model result dir: <result_dir>/<model>.")
+    rescore_parser.add_argument("--out-dir", required=True,
+                                help="Output root; writes <out-dir>/<model>/<benchmark>/. Must not overlap --run-dir.")
+    rescore_parser.add_argument("--benchmark", action="append", help="Benchmark name to rescore. Repeatable.")
+    rescore_parser.add_argument("--reasoning", default=None,
+                                help="Reasoning strategy override (default: the run's config_used.json, else server).")
+    rescore_parser.add_argument("--benchmark-config", default=None,
+                                help="Benchmark YAML for runs without config_used.json (default: configs/benchmarks/default.yaml).")
+
     subparsers.add_parser("list-benchmarks", help="List supported benchmark adapters.")
 
     args = parser.parse_args()
@@ -53,6 +64,13 @@ def main() -> None:
         run(args)
     elif args.command == "serve":
         serve(args)
+    elif args.command == "rescore":
+        from omni_bench.rescore import rescore_run
+
+        results = rescore_run(args.run_dir, args.out_dir, benchmarks=args.benchmark,
+                              reasoning=args.reasoning, benchmark_config=args.benchmark_config)
+        for name, summary in results.items():
+            print(f"{name}: accuracy={summary.get('accuracy')} total={summary.get('total')}")
     elif args.command == "list-benchmarks":
         for name in sorted(ADAPTER_NAMES):
             print(name)

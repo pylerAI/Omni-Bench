@@ -7,6 +7,7 @@ Preferred YAML (model entry; a benchmark entry may set ``audio`` / ``frames``)::
       frames: server         # client | server
       transport: base64      # file | base64
       strip_mm_kwargs: true  # drop mm_processor_kwargs / media_io_kwargs from the body
+      reasoning: server      # server | think_tag | none
 
 The pre-``inference:`` flat keys are still read and mean the same thing:
 ``audio_mode`` -> audio, ``frame_sampling`` -> frames, ``video_transport`` ->
@@ -35,12 +36,13 @@ LEGACY_KEYS = {
     "transport": "video_transport",
     "strip_mm_kwargs": "strip_mm_kwargs",
 }
-MODEL_AXES = ("audio", "frames", "transport", "strip_mm_kwargs")
-#: transport / strip_mm_kwargs describe the server, so only the model sets them.
+MODEL_AXES = ("audio", "frames", "transport", "strip_mm_kwargs", "reasoning")
+#: transport / strip_mm_kwargs / reasoning describe the server, so only the model sets them.
 BENCHMARK_AXES = ("audio", "frames")
 
 DEFAULT_AUDIO = "native"
 DEFAULT_TRANSPORT = "file"
+DEFAULT_REASONING = "server"
 #: Used when no adapter is involved (e.g. a bare client): send the video as is.
 DEFAULT_FRAMES = "server"
 
@@ -51,9 +53,10 @@ class InferenceSettings:
     frames: str = DEFAULT_FRAMES
     transport: str = DEFAULT_TRANSPORT
     strip_mm_kwargs: bool = False
+    reasoning: str = DEFAULT_REASONING
 
     def describe(self) -> str:
-        text = f"audio={self.audio} frames={self.frames} transport={self.transport}"
+        text = f"audio={self.audio} frames={self.frames} transport={self.transport} reasoning={self.reasoning}"
         return text + (" strip_mm_kwargs" if self.strip_mm_kwargs else "")
 
 
@@ -70,8 +73,8 @@ def read_inference_block(extra: dict[str, Any], *, allowed: tuple[str, ...], whe
         raise ValueError(f"{where}: unknown inference key(s) {unknown}. Allowed here: {list(allowed)}")
     values = {k: v for k, v in block.items() if v is not None}
     for key in allowed:
-        legacy = LEGACY_KEYS[key]
-        if extra.get(legacy) is None:
+        legacy = LEGACY_KEYS.get(key)
+        if legacy is None or extra.get(legacy) is None:
             continue
         if key in values and _norm(values[key]) != _norm(extra[legacy]):
             raise ValueError(
@@ -106,6 +109,7 @@ def resolve_inference(
         frames=frames,
         transport=str(m.get("transport", DEFAULT_TRANSPORT)).lower(),
         strip_mm_kwargs=bool(m.get("strip_mm_kwargs", False)),
+        reasoning=str(m.get("reasoning", DEFAULT_REASONING)).lower(),
     )
     _validate(settings)
     return settings
@@ -169,8 +173,10 @@ def _validate(settings: InferenceSettings) -> None:
     """Fail at resolution time on an unknown option name (registered strategies)."""
     from omni_bench.inference.audio import AUDIO_STRATEGIES
     from omni_bench.inference.frames import FRAME_STRATEGIES
+    from omni_bench.inference.reasoning import REASONING_STRATEGIES
     from omni_bench.inference.transport import TRANSPORTS
 
+    REASONING_STRATEGIES.get(settings.reasoning)
     AUDIO_STRATEGIES.get(settings.audio)
     FRAME_STRATEGIES.get(settings.frames)
     TRANSPORTS.get(settings.transport)

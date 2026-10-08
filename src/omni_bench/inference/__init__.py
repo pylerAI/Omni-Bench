@@ -1,6 +1,6 @@
 """Per-model inference strategies, selected from YAML.
 
-Three independent axes, each a registry of name -> class:
+Four independent axes, each a registry of name -> class:
 
 =========  ==========================  ==========================================
 axis       registry                    options
@@ -8,10 +8,12 @@ axis       registry                    options
 audio      ``AUDIO_STRATEGIES``        native · none · asr_text
 frames     ``FRAME_STRATEGIES``        client · server
 transport  ``TRANSPORTS``              file · base64
+reasoning  ``REASONING_STRATEGIES``    server · think_tag · none
 =========  ==========================  ==========================================
 
 :class:`InferencePipeline` is built once per (model, benchmark) and turns an
-adapter's :class:`MediaRequest` into OpenAI chat-completion arguments, so
+adapter's :class:`MediaRequest` into OpenAI chat-completion arguments (and
+splits reasoning out of the response), so
 adapters never branch on these choices. A new option is one class registered on
 its axis, e.g. ``@TRANSPORTS.register("s3")``.
 """
@@ -39,6 +41,7 @@ from omni_bench.inference.base import (
     merge_extra_body,
 )
 from omni_bench.inference.frames import FRAME_STRATEGIES, FrameStrategy
+from omni_bench.inference.reasoning import REASONING_STRATEGIES, ReasoningStrategy
 from omni_bench.inference.settings import InferenceSettings, InferenceWarning, resolve_inference
 from omni_bench.inference.transport import TRANSPORTS, Transport
 
@@ -53,6 +56,7 @@ class InferencePipeline:
     audio: AudioStrategy
     frames: FrameStrategy
     transport: Transport
+    reasoning: ReasoningStrategy
     #: Model-level extra_body merged into every request (e.g. chat_template_kwargs).
     default_extra_body: dict[str, Any]
 
@@ -72,6 +76,7 @@ class InferencePipeline:
             audio=AUDIO_STRATEGIES.get(settings.audio).create(ctx),
             frames=FRAME_STRATEGIES.get(settings.frames).create(ctx),
             transport=TRANSPORTS.get(settings.transport).create(ctx),
+            reasoning=REASONING_STRATEGIES.get(settings.reasoning).create(ctx),
             default_extra_body=dict(model.extra.get("extra_body") or {}),
         )
 
@@ -124,6 +129,8 @@ __all__ = [
     "InferenceWarning",
     "MM_KWARG_KEYS",
     "MediaRequest",
+    "REASONING_STRATEGIES",
+    "ReasoningStrategy",
     "Registry",
     "TRANSPORTS",
     "Transport",

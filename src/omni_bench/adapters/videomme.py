@@ -65,11 +65,6 @@ class VideoMMEAdapter(BenchmarkAdapter):
 
         records_path = output_dir / "records.jsonl"
         records, done = load_resumable_records(records_path, lambda r: str(r.get("question_id")))
-        existing_response = {str(record.get("question_id")): record.get("response") for record in records}
-        for item in flat:
-            qid = str(item["question_id"])
-            if qid in existing_response:
-                item["question_ref"]["response"] = existing_response[qid]
         pending = [item for item in flat if str(item["question_id"]) not in done]
 
         # With frames=client, frames are sampled here (the server ignores
@@ -178,25 +173,39 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 **completion.meta(),
             }
 
-        response_by_qid: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_item, item) for item in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/Video-MME"):
                 record = future.result()
-                response_by_qid[str(record["question_id"])] = record.get("response", "")
                 with write_lock:
                     records.append(record)
                     append_jsonl(records_path, record)
 
-        for item in flat:
-            qid = str(item["question_id"])
-            if qid in response_by_qid:
-                item["question_ref"]["response"] = response_by_qid[qid]
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode, official=official)
 
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_answer(record.get("response"))
+        return {"parsed_answer": parsed, "is_correct": parsed == record.get("answer")}
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode, official=None) -> dict[str, Any]:
+        """Parses every record (error rows included, as the official file needs a
+        response per question) and fills the official template's responses."""
+        if official is None:
+            official = deepcopy(load_videomme_annotation(benchmark.annotation_file))
+        question_by_qid = {
+            str(question.get("question_id")): question
+            for video in official
+            for question in video.get("questions", [])
+        }
         for record in records:
-            record["parsed_answer"] = extract_answer(record.get("response"))
-            record["is_correct"] = record["parsed_answer"] == record.get("answer")
+            question = question_by_qid.get(str(record.get("question_id")))
+            if question is not None:
+                question["response"] = record.get("response")
+            record.update(self.parse_record(record))
 
+        use_audio = bool(benchmark.extra.get("use_audio", False))
+        use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         summary = summarize_accuracy(records, ("duration", "task_type", "domain"))
@@ -205,7 +214,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "official_results_file": str(output_dir / "official_results.json"),
                 "use_audio": use_audio,
                 "use_subtitles": use_subtitles,
-                "frame_sampling": client.frames_mode,
+                "frame_sampling": frames_mode,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",

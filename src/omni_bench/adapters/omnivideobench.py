@@ -85,10 +85,19 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
                 records.append(record)
                 append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        return parse_answer(record)
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
-        summary["max_workers"] = max_workers
-        summary["preprocess_workers"] = preprocess_workers
-        summary["preprocess_cache_dir"] = str(cache_dir)
+        summary["max_workers"] = int(benchmark.extra.get("max_workers", 2))
+        summary["preprocess_workers"] = int(benchmark.extra.get("preprocess_workers", 4))
+        summary["preprocess_cache_dir"] = str(Path(
+            benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
+        ).expanduser())
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
@@ -195,14 +204,10 @@ def run_single_item(
                 "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
             ),
         )
-        response = completion.text
-        parsed = extract_model_answer(response, prompt)
+        record = {**item, "prompt": prompt, "response": completion.text}
         return {
-            **item,
-            "prompt": prompt,
-            "response": response,
-            "parsed_answer": parsed,
-            "is_correct": clean_text(parsed) == clean_text(item["answer"]),
+            **record,
+            **parse_answer(record),
             **completion.meta(),
             "sampled_num_frames": sampled_video["num_frames"],
             "audio_path": audio_path,
@@ -221,6 +226,12 @@ def run_single_item(
             "preprocess_cache_path": str(cache_path),
             "error": repr(exc),
         }
+
+
+def parse_answer(record: dict[str, Any]) -> dict[str, Any]:
+    """Official answer extraction and match for one record."""
+    parsed = extract_model_answer(record.get("response") or "", record.get("prompt"))
+    return {"parsed_answer": parsed, "is_correct": clean_text(parsed) == clean_text(record["answer"])}
 
 
 def client_frames(sampled_video: dict[str, Any]) -> VideoFrames:

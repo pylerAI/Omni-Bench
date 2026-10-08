@@ -13,6 +13,10 @@ class BenchmarkAdapter(ABC):
     #: Frames strategies this benchmark can run with; the first is its protocol
     #: default. Adapters that only ever hand over the original video keep "server".
     frame_modes: tuple[str, ...] = ("server",)
+    #: Record field holding the model's answer text (what the reasoning strategy rewrites).
+    response_field: str = "response"
+    #: Per-sample records the run appends to; ``omni-bench rescore`` reads it back.
+    records_file: str = "records.jsonl"
 
     @abstractmethod
     def run(
@@ -23,6 +27,24 @@ class BenchmarkAdapter(ABC):
         client: VllmChatClient,
         output_dir: Path,
     ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Fields the official parser derives from ``record[response_field]``."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def finalize(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        benchmark: BenchmarkConfig,
+        output_dir: Path,
+        frames_mode: str,
+    ) -> dict[str, Any]:
+        """Summary + output files from finished records (no inference). Shared by
+        ``run`` and ``omni-bench rescore``."""
         raise NotImplementedError
 
 

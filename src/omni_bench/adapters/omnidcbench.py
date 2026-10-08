@@ -52,6 +52,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 class OmniDCBenchAdapter(BenchmarkAdapter):
     name = "omnidcbench"
+    response_field = "prediction"
+    records_file = "predictions.jsonl"
 
     def run(
         self,
@@ -119,11 +121,10 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
             else:
                 fallback_reason = None
 
-            prediction = completion.text
+            record = {**row, "prediction": completion.text}
             record = {
-                **row,
-                "prediction": prediction,
-                "prediction_json": parse_prediction_json(prediction),
+                **record,
+                **self.parse_record(record),
                 "use_audio_in_video": fallback_reason is None,
                 "latency_s": completion.latency_s,
                 "prompt_tokens": completion.prompt_tokens,
@@ -132,6 +133,8 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
             }
             if fallback_reason:
                 record["audio_fallback_reason"] = fallback_reason
+            if completion.response_raw is not None:
+                record["response_raw"] = completion.response_raw
             return record
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -147,11 +150,19 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
                 append_jsonl(prediction_path, record)
                 done.add(str(record.get("clip_path")))
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        return {"prediction_json": parse_prediction_json(record.get("prediction") or "")}
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
+        prediction_path = output_dir / "predictions.jsonl"
         records = dedupe_records_by_clip(records)
         write_jsonl(prediction_path, records)
         metric_result = run_official_metrics(
             benchmark=benchmark,
-            data_root=data_root,
+            data_root=Path(benchmark.data_path or ".").expanduser(),
             output_dir=output_dir,
             prediction_path=prediction_path,
         )

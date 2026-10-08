@@ -22,6 +22,8 @@ class ChatCompletionResult:
     finish_reason: str | None = None
     #: Length of the ASR transcript block prepended to the prompt (asr_text mode).
     asr_chars: int | None = None
+    #: Server ``content`` before the reasoning strategy, only when it differs from ``text``.
+    response_raw: str | None = None
 
     def meta(self) -> dict[str, Any]:
         """Fields every adapter stores alongside its own record fields."""
@@ -33,6 +35,7 @@ class ChatCompletionResult:
             "finish_reason": self.finish_reason,
             "reasoning": self.reasoning,
             "asr_chars": self.asr_chars,
+            **({"response_raw": self.response_raw} if self.response_raw is not None else {}),
         }
 
 
@@ -110,15 +113,18 @@ class VllmChatClient:
         latency_s = time.perf_counter() - started
         choice = response.choices[0]
         usage = response.usage
+        content = choice.message.content or ""
+        text, reasoning = self.pipeline.reasoning.split(content, _reasoning_of(choice.message))
         return ChatCompletionResult(
-            text=choice.message.content or "",
+            text=text,
             latency_s=latency_s,
             prompt_tokens=usage.prompt_tokens if usage else None,
             completion_tokens=usage.completion_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,
-            reasoning=_reasoning_of(choice.message),
+            reasoning=reasoning,
             finish_reason=getattr(choice, "finish_reason", None),
             asr_chars=built.asr_chars,
+            response_raw=content if text != content else None,
         )
 
 

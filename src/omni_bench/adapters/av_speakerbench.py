@@ -72,13 +72,10 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 # is retried on the next invocation (see load_resumable_records).
                 return {**base, "response": "", "parsed_answer": "", "is_correct": False,
                         "latency_s": None, "error": f"{type(exc).__name__}: {exc}"}
-            response = completion.text
-            parsed = extract_characters_regex(response)
+            record = {**base, "response": completion.text}
             return {
-                **base,
-                "response": response,
-                "parsed_answer": parsed,
-                "is_correct": parsed == row.get("answer"),
+                **record,
+                **self.parse_record(record),
                 **completion.meta(),
             }
 
@@ -91,6 +88,14 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                     records.append(record)
                     append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_characters_regex(record.get("response"))
+        return {"parsed_answer": parsed, "is_correct": parsed == record.get("answer")}
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("category", "sub_category", "task_id"))
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
