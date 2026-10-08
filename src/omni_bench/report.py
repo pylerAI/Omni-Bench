@@ -37,6 +37,19 @@ MODEL_LABEL = {
     "nemotron-3-nano-omni": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8",
     "nemotron-3-nano-omni-bf16": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
     "nemotron-3-nano-omni-nvfp4": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
+    "qwen3.8-27b": "Qwen3.8-27B",
+    "qwen3.8-27b-whisper": "Qwen3.8-27B + Whisper",
+    "qwen3.8-27b-srv-nothink": "Qwen3.8-27B (non-thinking)",
+    "qwen3.8-27b-srv-think": "Qwen3.8-27B (thinking)",
+    "qwen3.8-27b-whisper-srvnothink": "Qwen3.8-27B + Whisper (non-thinking)",
+    "qwen3.8-27b-whisper-srvthink": "Qwen3.8-27B + Whisper (thinking)",
+    "nemotron-3.5-super-vl-bf16": "Nemotron-3.5-Super-VL-BF16 + Whisper",
+    "nemotron-3.5-super-vl-nvfp4": "Nemotron-3.5-Super-VL-NVFP4 + Whisper",
+    "nemotron-3.5-super-vl-bf16-nothink": "Nemotron-3.5-Super-VL-BF16 + Whisper (non-thinking)",
+    "nemotron-3.5-super-vl-bf16-think": "Nemotron-3.5-Super-VL-BF16 + Whisper (thinking)",
+    "nemotron-3.5-super-vl-nvfp4-nothink": "Nemotron-3.5-Super-VL-NVFP4 + Whisper (non-thinking)",
+    "nemotron-3.5-super-vl-nvfp4-think": "Nemotron-3.5-Super-VL-NVFP4 + Whisper (thinking)",
+    "nemotron-3.5-super-vl-bf16-nothink-nemotron-asr": "Nemotron-3.5-Super-VL-BF16 + Nemotron ASR (non-thinking)",
 }
 
 
