@@ -40,7 +40,7 @@ Qwen 권장 설정만 사용합니다. 이전 evalkit 기반(프레임 고정 ·
 
 `max_tokens`는 thinking에서 8,192로 시작했다가 **4.4~13.9%가 잘려**(추론 중 끊겨 최종 답 유실) 32,768로 올려 전량 재측정했습니다 → 잘림 0.
 
-### 입력 처리 — `frame_sampling: server`
+### 입력 처리 — `inference.frames: server`
 
 프레임을 클라이언트에서 뽑지 않고 **원본 영상을 그대로 보내** 모델 프로세서가 결정하게 합니다. 값은 모델 웨이트의 `video_preprocessor_config.json` 그대로입니다.
 

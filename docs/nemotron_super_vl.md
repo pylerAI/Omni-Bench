@@ -50,19 +50,19 @@ think 응답은 서버의 reasoning parser가 `message.reasoning`과 `content`�
 
 | 제약 | 대응 |
 | --- | --- |
-| `file://` 경로를 읽지 못함 (`--allowed-local-media-path` 없음) | `video_transport: base64` — 영상을 base64 data URL로 전송 |
+| `file://` 경로를 읽지 못함 (`--allowed-local-media-path` 없음) | `inference.transport: base64` — 영상을 base64 data URL로 전송 |
 | 요청 본문이 너무 큼 (Video-MME 최대 922MB) | 200MB 초과 파일만 ≤720p로 재인코딩해 캐시 (fps 유지, 오디오 제거). 대상: Video-MME 156개 · OmniVideoBench 87개 |
-| `mm_processor_kwargs` / `media_io_kwargs`를 넣으면 400 | `strip_mm_kwargs: true` — 해당 키를 요청에서 제거 |
-| audio 입력 거부 | `audio_mode: asr_text` (Video-MME는 `none`) |
+| `mm_processor_kwargs` / `media_io_kwargs`를 넣으면 400 | `inference.strip_mm_kwargs: true` — 해당 키를 요청에서 제거 |
+| audio 입력 거부 | `inference.audio: asr_text` (Video-MME는 벤치 설정에서 `none`) |
 | 요청별 프레임 설정 불가 | 서버 기본값 사용. **영상 1개당 약 4.6k 토큰으로 고정**됨 (vLLM 기본 32프레임으로 추정, 미확인) |
 
-영상 입력량은 Qwen3.8(`frame_sampling: server`, 약 10~13k 토큰)의 절반 이하입니다. 서버 설정(`--media-io-kwargs`)은 Platform 팀만 바꿀 수 있습니다.
+영상 입력량은 Qwen3.8(`inference.frames: server`, 약 10~13k 토큰)의 절반 이하입니다. 서버 설정(`--media-io-kwargs`)은 Platform 팀만 바꿀 수 있습니다.
 
 ### 그 외
 
 | 항목 | 값 |
 | --- | --- |
-| `frame_sampling` | `server` (Qwen3.8과 동일) |
+| `inference.frames` | `server` (벤치 설정 · Qwen3.8과 동일) |
 | ASR | faster-whisper `large-v3` 기존 캐시 재사용 (`strict_cache: true`, 12,660건) |
 | Video-MME | ASR 미주입 · 자막 미사용 (official 프로토콜) |
 | OmniVideoBench system prompt | 어댑터 기본값 그대로 (Qwen3.8 · Nemotron-Omni 런과 동일 조건) |
@@ -160,9 +160,9 @@ Nemotron 캐시 중 4개 영상(OmniVideoBench `video_93/532/534/539`)은 타임
 
 | 기능 | 파일 | 설명 |
 | --- | --- | --- |
-| base64 영상 전송 | `src/omni_bench/client.py`, `src/omni_bench/video_transport.py` | model config `video_transport: file \| base64`. base64일 때 `transcode:` 기준을 넘는 파일은 재인코딩 캐시를 씀. 캐시 키는 경로·크기·mtime·재인코딩 파라미터이고, 동시 접근에 안전함 |
+| base64 영상 전송 | `src/omni_bench/inference/transport.py`, `src/omni_bench/video_transport.py` | model config `inference.transport: file \| base64`. base64일 때 `transcode:` 기준을 넘는 파일은 재인코딩 캐시를 씀. 캐시 키는 경로·크기·mtime·재인코딩 파라미터이고, 동시 접근에 안전함 |
 | 재인코딩 사전 생성 | `scripts/pretranscode_videos.py` | 평가 전에 캐시를 병렬로 미리 생성. 캐시가 없으면 클라이언트가 그 자리에서 생성 |
-| mm kwargs 제거 | `src/omni_bench/client.py` | `strip_mm_kwargs: true`면 `mm_processor_kwargs`·`media_io_kwargs`를 요청에서 삭제 |
+| mm kwargs 제거 | `src/omni_bench/inference/__init__.py` | `inference.strip_mm_kwargs: true`면 `mm_processor_kwargs`·`media_io_kwargs`를 요청에서 삭제 |
 | reasoning 기록 | `src/omni_bench/client.py`, `adapters/*` | `reasoning` · `finish_reason` · 토큰 수를 레코드에 저장 |
 | 에러 행 재시도 | `src/omni_bench/io.py`, `adapters/*` | 요청 하나가 실패해도 벤치 전체가 멈추지 않고 에러 행으로 기록. 재실행하면 에러 행만 다시 돌림 |
 | 실행 옵션 | `src/omni_bench/cli.py` | `--limit N`, `--limit-mode head\|spread`(전체에서 고르게 N개), `--result-dir`, 실행 설정 스냅샷 `config_used.json`(git 커밋 포함) |
@@ -187,12 +187,17 @@ uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink.
     --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense \
     --limit 20 --limit-mode spread --result-dir /tmp/smoke
 
-# 2. 본 실행 — <bf16|nvfp4> <nothink|think> [bench ...] (생략 시 4종 순차)
-bash scripts/run_nemotron_super_vl.sh bf16 nothink worldsense av_speakerbench videomme omnivideobench
+# 2. 본 실행 — 측정 config 파일 하나 = 런 하나. 벤치는 --benchmark로 하나씩 (생략 시 벤치 설정 전체)
+#    model config: {bf16,nvfp4}_{nothink,think}.yaml / bench config: bench_{nothink,think}.yaml
+uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink.yaml \
+    --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense
 
 # 3. ASR 비교 (Nemotron ASR 캐시, BF16 · no-think, Video-MME 제외)
-bash scripts/run_nemotron_super_vl_asr.sh
+uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink_nemotron_asr.yaml \
+    --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense
 ```
+
+원격 서버 전용이므로 `--serve`는 쓰지 않습니다. 측정 당시에는 사외 통신을 막기 위해 `HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1`을 두고, 벤치 4종(videomme · worldsense · omnivideobench · av_speakerbench)을 위 명령으로 순차 실행했습니다. 긴 런은 `nohup … > <log> 2>&1 &`로 백그라운드에서 돌립니다.
 
 | config | 용도 |
 | --- | --- |

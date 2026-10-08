@@ -2,7 +2,7 @@
 """Transcribe every benchmark's media ahead of an evaluation run.
 
 The transcripts land in the shared ASR cache, so `omni-bench run` with
-``audio_mode: asr_text`` never blocks on Whisper. One worker process is pinned
+``inference.audio: asr_text`` never blocks on Whisper. One worker process is pinned
 per GPU; each process runs a thread pool over its share of the files. The job is
 resumable — cached files are skipped.
 

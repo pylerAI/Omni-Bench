@@ -29,17 +29,17 @@ Qwen 권장 설정으로 **non-think / thinking 두 조건**을 측정합니다.
 | non-think | false | 0.7 / 0.80 / 1.5 | 4,096 | `qwen3_8_27b_whisper_nothink.yaml` + `bench_nothink.yaml` |
 | thinking | **true** | 1.0 / 0.95 / 0.0 | **32,768** | `qwen3_8_27b_whisper_thinking.yaml` + `bench_thinking.yaml` |
 
-두 조건 모두 `top_k 20` · `min_p 0.0` · `repetition_penalty 1.0` · `frame_sampling: server`입니다. config는 `configs/recommend/` 에 있습니다.
+두 조건 모두 `top_k 20` · `min_p 0.0` · `repetition_penalty 1.0` · `inference.frames: server`입니다. config는 `configs/recommend/` 에 있습니다.
 
-`audio_mode`는 4종에서 `asr_text`, Video-MME만 `none`입니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건이기 때문입니다.
+`inference.audio`는 4종에서 `asr_text`, Video-MME만 `none`입니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건이기 때문입니다.
 
 **결과는 thinking이 유일한 유효 변수입니다.** 샘플링 파라미터(−0.13 ~ +2.90)와 frame sampling(−1.00 ~ +0.15)은 분산 범위이고, thinking만 +9.80 ~ +15.01을 만듭니다. 수치는 [평가 문서](qwen3.8_plan.md#2-결과)를 참고하세요.
 
 ## 벤치마크별 audio 경로
 
-adapter는 전부 `VllmChatClient.complete()` 하나만 호출하므로, audio 처리는 client 계층에서만 교체됩니다. **adapter 코드는 수정하지 않았습니다.**
+adapter는 전부 `VllmChatClient.complete()` 하나만 호출하므로, audio 처리는 client의 추론 파이프라인(`src/omni_bench/inference/`)에서만 교체됩니다. adapter는 audio·frames·transport 설정에 따라 분기하지 않습니다.
 
-recommend config는 5종 전부 `frame_sampling: server` — 원본 영상을 그대로 넘깁니다.
+recommend config는 5종 전부 `inference.frames: server` — 원본 영상을 그대로 넘깁니다.
 
 | Benchmark | 비주얼 | audio 소스 | cascade 처리 |
 | --- | --- | --- | --- |
@@ -49,24 +49,26 @@ recommend config는 5종 전부 `frame_sampling: server` — 원본 영상을 �
 | OmniVideoBench | `video_path` | `audio_path` (.wav) | 그대로 전사 |
 | Video-MME | `video_path` | **없음** | **주입 없음** |
 
-AV-SpeakerBench와 OmniDCBench는 어댑터가 원래부터 `video_path`를 보내므로 `frame_sampling` 키가 필요 없습니다. 나머지 셋은 이 키로 클라이언트 프레임 추출을 끕니다.
+AV-SpeakerBench와 OmniDCBench는 원본 영상만 보내는 벤치마크라 `frames`가 `server`로 고정되어 있어 키가 필요 없습니다. 나머지 셋(기본값 `client`)은 벤치 설정의 `inference.frames: server`로 클라이언트 프레임 추출을 끕니다.
 
-Video-MME는 `audio_path`를 넘기지 않고, 그 위에 `configs/benchmarks/default.yaml`에서 `audio_mode: none`으로 못박아 두었습니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건입니다.
+Video-MME는 `audio_path`를 넘기지 않고, 그 위에 `configs/benchmarks/default.yaml`에서 `inference.audio: none`으로 못박아 두었습니다 — official 프로토콜이 audio를 입력으로 쓰지 않고 비교 모델도 같은 조건입니다.
 
-## audio_mode 우선순위
+## audio 우선순위
 
-`audio_mode`는 model config와 benchmark config 양쪽에서 지정할 수 있고, **benchmark 값이 model 값을 덮어씁니다**. audio 사용 여부는 모델의 성질이기도 하지만 benchmark protocol의 성질이기도 하기 때문입니다 — official 설정에서 audio가 빠진 benchmark는 모델이 `asr_text` 모드로 돌아도 audio-free로 유지되어야 합니다.
+`inference.audio`(구 키 `audio_mode`)는 model config와 benchmark config 양쪽에서 지정할 수 있고, **benchmark 값이 model 값을 덮어씁니다**. audio 사용 여부는 모델의 성질이기도 하지만 benchmark protocol의 성질이기도 하기 때문입니다 — official 설정에서 audio가 빠진 benchmark는 모델이 `asr_text` 모드로 돌아도 audio-free로 유지되어야 합니다.
 
 ```yaml
 # configs/models/qwen3_8_27b_whisper.yaml
 models:
   - name: qwen3.8-27b-whisper
-    audio_mode: asr_text        # 모델 기본값
+    inference:
+      audio: asr_text           # 모델 기본값
 
 # configs/benchmarks/default.yaml
 benchmarks:
   - name: videomme
-    audio_mode: none            # 이 benchmark만 예외
+    inference:
+      audio: none               # 이 benchmark만 예외
 ```
 
 benchmark config의 `asr:` 블록도 model의 `asr:` 블록 위에 병합됩니다. 필요한 항목만 적으면 되고 엔진 설정을 다시 쓸 필요가 없습니다.
@@ -81,7 +83,7 @@ STT 엔진은 `AsrCommandPool`이 관리해 동일한 엔진 설정을 쓰는 be
 
 ## 실제 조립되는 프롬프트
 
-`AsrTextChatClient`는 transcript 블록을 official prompt **앞**에 붙이고 둘 사이에 빈 줄 하나를 넣습니다. official prompt 문자열은 바이트 단위로 그대로 남아 official parser가 영향을 받지 않습니다.
+`asr_text` 스트래티지(`AsrTextAudio`)는 transcript 블록을 official prompt **앞**에 붙이고 둘 사이에 빈 줄 하나를 넣습니다. official prompt 문자열은 바이트 단위로 그대로 남아 official parser가 영향을 받지 않습니다.
 
 아래는 15초 클립에 발화 3개가 잡힌 경우의 예시입니다. transcript 블록은 모든 벤치마크에서 동일하고, 그 아래 official prompt만 벤치마크마다 다릅니다.
 
@@ -165,7 +167,7 @@ This clip is exactly 15 seconds long. Every timestamp must lie within 00:00-00:1
 ### Video-MME — 주입하지 않음
 미디어 파트: `image_url` × 64 (JPEG data URI · frame당 602,112 px 상한)
 
-`audio_mode: none`이므로 transcript가 붙지 않습니다. 기존 4모델 런과 프롬프트가 완전히 동일합니다.
+`inference.audio: none`이므로 transcript가 붙지 않습니다. 기존 4모델 런과 프롬프트가 완전히 동일합니다.
 
 ```text
 Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.
@@ -199,10 +201,12 @@ src/omni_bench/asr/
   cache.py       media 식별자 기반 transcript 디스크 캐시
   commands.py    Command ABC · TranscribeCommand · BatchTranscribeCommand (커맨드 패턴)
   format.py      Transcription -> 프롬프트 블록
-src/omni_bench/asr_client.py
-  NoAudioChatClient   audio_mode: none
-  AsrTextChatClient   audio_mode: asr_text
-  build_chat_client   config -> client 팩토리
+src/omni_bench/inference/audio.py
+  NoAudio             inference.audio: none
+  AsrTextAudio        inference.audio: asr_text (엔진은 asr.strategy.name)
+  AsrCommandPool      같은 엔진 설정이면 STT 엔진 1회 로드
+src/omni_bench/client.py
+  build_chat_client   config -> client(추론 파이프라인) 팩토리
 ```
 
 **스트래티지 패턴** — STT 엔진은 `SttStrategy` 하나의 인터페이스로 교체됩니다. 커맨드는 어떤 엔진이 도는지 알지 못합니다.
@@ -277,6 +281,14 @@ python scripts/strip_truncated.py all   # --dry-run 으로 먼저 세어볼 수 
 ```
 
 `max_tokens`에 도달해 최종 답이 유실된 레코드를 제거합니다. 그 뒤 3번을 다시 실행하면 어댑터 재개 로직이 **제거된 건만** 다시 돌립니다.
+
+### 5. thinking 런 재채점
+
+official parser는 응답의 첫 `[ABCD]` 문자를 답으로 보므로, 추론 텍스트가 앞에 붙는 thinking 출력에서는 오답이 잡힙니다. 저장된 응답으로 다시 채점합니다.
+
+```bash
+python scripts/rescore_mcq.py results/<model>/<benchmark>/records.jsonl options
+```
 
 판정 기준이 두 개입니다.
 
@@ -394,7 +406,7 @@ vLLM이 번들 커널(`vllm-flash-attn`)을 쓰기 때문에 외부 패키지 �
 
 ## frame sampling — 서버 위임을 채택했다
 
-`frame_sampling: server`는 프레임을 클라이언트에서 뽑지 않고 원본 영상을 그대로 보내 모델 프로세서가 결정하게 합니다. 값은 모델 웨이트의 `video_preprocessor_config.json` 그대로입니다 — `fps 2` · `max_frames 768` · `min_frames 4` · `size.longest_edge 25,165,824` (**비디오 전체** 픽셀 예산).
+`inference.frames: server`는 프레임을 클라이언트에서 뽑지 않고 원본 영상을 그대로 보내 모델 프로세서가 결정하게 합니다. 값은 모델 웨이트의 `video_preprocessor_config.json` 그대로입니다 — `fps 2` · `max_frames 768` · `min_frames 4` · `size.longest_edge 25,165,824` (**비디오 전체** 픽셀 예산).
 
 핵심은 픽셀 예산이 프레임당이 아니라 비디오 전체에 걸린다는 점입니다. 해상도로 환산하면:
 
@@ -528,12 +540,13 @@ evalkit 방식에서 Video-MME adapter는 frame 64장을 `image_url` 파트 64�
 
 ## 스모크 테스트
 
-의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio_mode 분기를 확인합니다.
+의존성(faster-whisper, vLLM 서버) 없이 로직만 검증합니다. 가짜 STT 전략과 스텁 OpenAI SDK를 써서 프롬프트 조립, 캐시, audio·frames 스트래티지 분기를 확인합니다.
 
 ```bash
-python3 tests/smoke_asr.py       # 전략 레지스트리 · 캐시 · demux · 배치 · 포맷
-python3 tests/smoke_client.py    # audio_mode 3종 동작 · 프롬프트 주입 위치
-python3 tests/smoke_override.py  # benchmark 오버라이드 · asr 병합 · 엔진 풀 공유
+uv run python tests/smoke_asr.py        # 전략 레지스트리 · 캐시 · demux · 배치 · 포맷
+uv run python tests/smoke_client.py     # audio 3종 · frames 2종 동작 · 프롬프트 주입 위치
+uv run python tests/smoke_override.py   # benchmark 오버라이드 · asr 병합 · 엔진 풀 공유 · 설정 키 경고
+uv run python tests/smoke_transport.py  # file/base64 전송 · 재인코딩 캐시 · inference 블록 = 구 키
 ```
 
 실제 Whisper 가중치와 vLLM 서버를 쓰는 경로는 별도로 확인해야 합니다.
