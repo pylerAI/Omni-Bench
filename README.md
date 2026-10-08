@@ -50,11 +50,14 @@ scripts/
   extract_omnidcbench_videos.sh
 src/omni_bench/
   adapters/
+  inference/      audio / frames / transport / reasoning strategy registries
   cli.py
   client.py
   config.py
   io.py
 submodules/
+tests/            pytest suite (no GPU, server, or dataset needed)
+.github/workflows/tests.yml
 ```
 
 ## Setup
@@ -194,9 +197,16 @@ Results across all benchmarks are aggregated into:
 
 To add a new benchmark, follow these steps:
 
-1. Implement the adapter under `src/omni_bench/adapters/`
+1. Implement the adapter under `src/omni_bench/adapters/` by subclassing `BenchmarkAdapter`:
+   - `run()` does inference. It hands each request to `client.complete()` (video path, audio path, lazily sampled client frames) instead of building OpenAI content parts itself, and ends by calling `finalize()`.
+   - `parse_record(record)` returns the fields the official parser derives from the stored response.
+   - `finalize(records, ...)` writes the summary and output files from finished records.
+   - `frame_modes` lists the frame-sampling modes the protocol allows; the first is the default.
+
+   `parse_record` and `finalize` are abstract rather than helpers inside `run` so that stored records can be re-parsed and re-summarized through exactly the code a run uses, without inference. A follow-up `omni-bench rescore` command relies on this.
 2. Register the adapter in `src/omni_bench/adapters/__init__.py`
 3. Add an entry to `configs/benchmarks/default.yaml` or to a separate benchmark config
 4. Document the protocol, metrics, and output table in `docs/<benchmark_name>.md`
+5. Run the tests: `uv sync && uv run pytest`
 
 To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`.
