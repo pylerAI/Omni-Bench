@@ -95,6 +95,7 @@ class BuildContext:
 
     model: Any                      # ModelConfig
     benchmark: Any | None = None    # BenchmarkConfig
+    asr_pool: Any | None = None     # AsrCommandPool
 
 
 def file_url(path: str | Path) -> str:

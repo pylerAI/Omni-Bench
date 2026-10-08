@@ -19,13 +19,13 @@ from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.inference import VideoFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
     name = "omnivideobench"
-    # Client-side frames, sent as one JPEG-sequence video.
-    frame_modes = ("client",)
+    # Client-side frames by default, sent as one JPEG-sequence video.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -39,7 +39,7 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
             raise ValueError("OmniVideoBench requires annotation_file in config.")
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         items = self._flatten(load_annotation(Path(benchmark.annotation_file)), video_dir)
-        items = apply_limit(items, benchmark.limit)
+        items = apply_limit(items, benchmark.limit, benchmark.extra.get("limit_mode"))
         max_frames = int(benchmark.extra.get("max_frames", benchmark.extra.get("num_frames", 120)))
         fps = float(benchmark.extra.get("fps", 2.0))
         max_workers = int(benchmark.extra.get("max_workers", 2))
@@ -49,8 +49,9 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         ).expanduser()
 
         records_path = output_dir / "records.jsonl"
-        existing_records = read_jsonl_records(records_path)
-        done = {str(record.get("question_id")) for record in existing_records}
+        existing_records, done = load_resumable_records(
+            records_path, lambda r: str(r.get("question_id"))
+        )
         pending_items = [item for item in items if str(item.get("question_id")) not in done]
 
         cache_by_video = preprocess_videos(
@@ -190,8 +191,12 @@ def run_single_item(
             video_path=item["video_path"],
             frames=lambda: client_frames(sampled_video),
             audio_path=audio_path if audio_path else None,
-            max_tokens=int(benchmark.extra.get("max_tokens", 1024)),
-            temperature=float(benchmark.extra.get("temperature", 0.7)),
+            # max_tokens/temperature 는 BenchmarkConfig 의 정식 필드다. extra 에서
+            # 읽으면 _split_known() 이 이미 빼내 갔으므로 항상 하드코딩 기본값이
+            # 쓰여, 설정 파일의 값이 조용히 무시된다 (thinking 런이 1024 에서
+            # 잘린 원인). 다른 어댑터와 동일하게 타입 필드를 쓴다.
+            max_tokens=benchmark.max_tokens,
+            temperature=benchmark.temperature,
             top_p=benchmark.extra.get("top_p"),
             do_sample=bool(benchmark.extra.get("do_sample", True)),
             system_prompt=benchmark.extra.get(
@@ -203,10 +208,7 @@ def run_single_item(
         return {
             **record,
             **parse_answer(record),
-            "latency_s": completion.latency_s,
-            "prompt_tokens": completion.prompt_tokens,
-            "completion_tokens": completion.completion_tokens,
-            "total_tokens": completion.total_tokens,
+            **completion.meta(),
             "sampled_num_frames": sampled_video["num_frames"],
             "audio_path": audio_path,
             "preprocess_cache_path": str(cache_path),

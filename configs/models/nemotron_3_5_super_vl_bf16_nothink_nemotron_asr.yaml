@@ -1,0 +1,38 @@
+# Nemotron-3.5-Super-VL BF16 · non-thinking · ASR 비교 런 (Nemotron streaming ASR)
+# bf16_nothink.yaml 과 동일하되 transcript 소스만 Whisper large-v3 →
+# nvidia/nemotron-3.5-asr-streaming-0.6b (NeMo cache-aware streaming, 캐시 전용).
+# 포맷([mm:ss] text)·주입 위치·max_chars(null)·벤치 설정(bench_nothink.yaml)은 동일.
+benchmark_config: ../benchmarks/nemotron_3_5_super_vl_nothink.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+global:
+  result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
+  request_timeout_s: 3600
+models:
+- name: nemotron-3.5-super-vl-bf16-nothink-nemotron-asr
+  display_name: "Nemotron-3.5-Super-VL-BF16 + Nemotron ASR (non-thinking)"   # shown in report.html
+  served_model_name: nemotron-3.5-super-vl-bf16
+  weight_path: /dev/null   # 원격 서버 전용 — --serve 금지
+  base_url: http://vllm-nemotron-3-5-super-vl-bf16.vllm:8000/v1
+  inference:
+    audio: asr_text
+    transport: base64
+    strip_mm_kwargs: true
+  transcode:
+    threshold_mb: 200
+    cache_dir: /gpfs/public/artifacts/ail/nemotron-compare/cache/transcode
+    preset: veryfast
+    threads: 8
+    ladder:
+    - {max_height: 720, crf: 28}
+    - {max_height: 480, crf: 30}
+    - {max_height: 360, crf: 32}
+  # top_k / presence_penalty 등은 보내지 않는다 (서버 기본값). temperature 는 벤치 설정.
+  extra_body:
+    top_p: 0.95
+    chat_template_kwargs:
+      enable_thinking: false
+  asr:
+    strategy:
+      name: nemo_streaming          # cache-only (src/omni_bench/asr/nemo_streaming.py)
+      model: nvidia/nemotron-3.5-asr-streaming-0.6b
+    cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+    strict_cache: true

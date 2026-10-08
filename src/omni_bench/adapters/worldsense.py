@@ -18,7 +18,7 @@ from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
 from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, summarize_accuracy, write_json
 
 
 SYS = (
@@ -77,8 +77,8 @@ AUDIO_CLASSES = ["Speech", "Event", "Music"]
 
 class WorldSenseAdapter(BenchmarkAdapter):
     name = "worldsense"
-    # Client-side 8 frames, matching VLMEvalKit.
-    frame_modes = ("client",)
+    # Client-side 8 frames by default to match VLMEvalKit.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -93,10 +93,13 @@ class WorldSenseAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or data_root / "videos").expanduser()
         cache_dir = Path(benchmark.extra.get("preprocess_cache_dir", data_root / "preprocess_cache")).expanduser()
 
-        rows = apply_limit(self._flatten(read_worldsense_json(annotation_file), video_dir), benchmark.limit)
+        rows = apply_limit(
+            self._flatten(read_worldsense_json(annotation_file), video_dir),
+            benchmark.limit,
+            benchmark.extra.get("limit_mode"),
+        )
         records_path = output_dir / "records.jsonl"
-        records = read_jsonl_records(records_path)
-        done = {worldsense_key(record) for record in records}
+        records, done = load_resumable_records(records_path, worldsense_key)
         num_frames = int(benchmark.extra.get("num_frames", 8))
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
         pending = [row for row in rows if worldsense_key(row) not in done]
@@ -114,26 +117,29 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     "latency_s": None,
                     "error": f"Video file not found: {video_path}",
                 }
-            # Frame sampling + audio extraction is CPU/IO-bound; running rows
-            # concurrently overlaps it with GPU inference and uses all DP replicas.
-            media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
-            completion = client.complete(
-                prompt,
-                video_path=video_path,
-                frames=lambda: ImageFrames(media["image_urls"]),
-                audio_path=media["audio_path"],
-                max_tokens=benchmark.max_tokens,
-                temperature=benchmark.temperature,
-                system_prompt=SYS,
-            )
+            try:
+                # Frame sampling + audio extraction is CPU/IO-bound; running rows
+                # concurrently overlaps it with GPU inference and uses all DP replicas.
+                media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
+                completion = client.complete(
+                    prompt,
+                    video_path=video_path,
+                    frames=lambda: ImageFrames(media["image_urls"]),
+                    audio_path=media["audio_path"],
+                    max_tokens=benchmark.max_tokens,
+                    temperature=benchmark.temperature,
+                    system_prompt=SYS,
+                )
+            except Exception as exc:
+                # Retried on the next invocation (see load_resumable_records).
+                return {**row, "prompt": prompt, "response": "", "parsed_answer": "",
+                        "is_correct": False, "score": -1, "latency_s": None,
+                        "error": f"{type(exc).__name__}: {exc}"}
             record = {**row, "prompt": prompt, "response": completion.text}
             return {
                 **record,
                 **self.parse_record(record),
-                "latency_s": completion.latency_s,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
+                **completion.meta(),
                 "preprocess_cache_path": str(media["cache_path"]),
             }
 
