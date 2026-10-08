@@ -1,10 +1,11 @@
 """Reasoning axis: how reasoning is separated from the answer in a response.
 
-``server``    — the server already splits it (vLLM reasoning parser): ``content``
-                is the answer, the server's reasoning field is stored as is.
-``think_tag`` — the server returns everything in ``content``; text up to the
-                last ``</think>`` is reasoning, only what follows is the answer.
-``none``      — no processing; reasoning is not recorded.
+``as_is`` (default) — ``content`` is the answer as received; a separate
+                     reasoning field from the server (vLLM reasoning parser)
+                     is recorded as ``reasoning``.
+``split``          — the server returns everything in ``content``; text up to
+                     the last ``</think>`` is reasoning, only what follows is
+                     the answer.
 
 Applied right after the response arrives (and by ``omni-bench rescore`` on
 stored records), before an adapter's official parser sees the text.
@@ -36,14 +37,14 @@ class ReasoningStrategy(ABC):
 REASONING_STRATEGIES: Registry[ReasoningStrategy] = Registry("reasoning")
 
 
-@REASONING_STRATEGIES.register("server")
-class ServerReasoning(ReasoningStrategy):
+@REASONING_STRATEGIES.register("as_is")
+class AsIsReasoning(ReasoningStrategy):
     def split(self, content: str, server_reasoning: str | None) -> tuple[str, str | None]:
         return content, server_reasoning
 
 
-@REASONING_STRATEGIES.register("think_tag")
-class ThinkTagReasoning(ReasoningStrategy):
+@REASONING_STRATEGIES.register("split")
+class SplitReasoning(ReasoningStrategy):
     def split(self, content: str, server_reasoning: str | None) -> tuple[str, str | None]:
         cut = content.rfind(THINK_CLOSE)
         if cut < 0:
@@ -54,12 +55,6 @@ class ThinkTagReasoning(ReasoningStrategy):
         answer = content[cut + len(THINK_CLOSE):].strip()
         parts = [p for p in (server_reasoning, inline) if p]
         return answer, "\n\n".join(parts) if parts else None
-
-
-@REASONING_STRATEGIES.register("none")
-class NoReasoning(ReasoningStrategy):
-    def split(self, content: str, server_reasoning: str | None) -> tuple[str, str | None]:
-        return content, None
 
 
 def resplit_record(strategy: ReasoningStrategy, record: dict, field: str = "response") -> dict:

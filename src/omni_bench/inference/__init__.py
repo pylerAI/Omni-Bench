@@ -8,7 +8,7 @@ axis       registry                    options
 audio      ``AUDIO_STRATEGIES``        native · none · asr_text
 frames     ``FRAME_STRATEGIES``        client · server
 transport  ``TRANSPORTS``              file · base64
-reasoning  ``REASONING_STRATEGIES``    server · think_tag · none
+reasoning  ``REASONING_STRATEGIES``    as_is · split
 =========  ==========================  ==========================================
 
 :class:`InferencePipeline` is built once per (model, benchmark) and turns an

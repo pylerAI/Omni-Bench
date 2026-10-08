@@ -53,8 +53,10 @@ def main() -> None:
     rescore_parser.add_argument("--out-dir", required=True,
                                 help="Output root; writes <out-dir>/<model>/<benchmark>/. Must not overlap --run-dir.")
     rescore_parser.add_argument("--benchmark", action="append", help="Benchmark name to rescore. Repeatable.")
-    rescore_parser.add_argument("--reasoning", default=None,
-                                help="Reasoning strategy override (default: the run's config_used.json, else server).")
+    rescore_parser.add_argument("--reasoning", default=None, choices=("as_is", "split"),
+                                help="Reasoning strategy override: as_is (content is the answer) or split "
+                                     "(answer after the last </think>). Default: the run's config_used.json, "
+                                     "else the model config, else as_is.")
     rescore_parser.add_argument("--config", default=None,
                                 help="Model YAML standing in for a missing config_used.json: its inference "
                                      "settings (e.g. reasoning) and `benchmark_config:` are used.")

@@ -7,7 +7,7 @@ Preferred YAML (model entry; a benchmark entry may set ``audio`` / ``frames``)::
       frames: server         # client | server
       transport: base64      # file | base64
       strip_mm_kwargs: true  # drop mm_processor_kwargs / media_io_kwargs from the body
-      reasoning: server      # server | think_tag | none
+      reasoning: as_is       # as_is | split
 
 The pre-``inference:`` flat keys are still read and mean the same thing:
 ``audio_mode`` -> audio, ``frame_sampling`` -> frames, ``video_transport`` ->
@@ -42,7 +42,7 @@ BENCHMARK_AXES = ("audio", "frames")
 
 DEFAULT_AUDIO = "native"
 DEFAULT_TRANSPORT = "file"
-DEFAULT_REASONING = "server"
+DEFAULT_REASONING = "as_is"
 #: Used when no adapter is involved (e.g. a bare client): send the video as is.
 DEFAULT_FRAMES = "server"
 
