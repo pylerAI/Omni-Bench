@@ -26,7 +26,6 @@ from typing import Any
 
 from omni_bench.asr.schema import MediaRef
 
-VIDEO_TRANSPORTS = ("file", "base64")
 DEFAULT_TRANSCODE_CACHE = "/gpfs/public/artifacts/ail/nemotron-compare/cache/transcode"
 
 VIDEO_MIME = {

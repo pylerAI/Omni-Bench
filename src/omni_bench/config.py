@@ -85,7 +85,9 @@ MODEL_EXTRA_KEYS = frozenset({
 
 #: Benchmark keys outside the BenchmarkConfig fields, per adapter. "*" applies to all.
 BENCHMARK_EXTRA_KEYS: dict[str, frozenset[str]] = {
-    "*": frozenset({"inference", "audio_mode", "frame_sampling", "asr", "concurrency", "limit_mode"}),
+    # max_workers: cli.py reads it (with concurrency) for every benchmark's perf summary.
+    "*": frozenset({"inference", "audio_mode", "frame_sampling", "asr", "concurrency", "limit_mode",
+                    "max_workers"}),
     "av_speakerbench": frozenset({"dataset_name", "category", "sub_category", "task_id"}),
     "omnidcbench": frozenset({"run_metrics", "metric_gt_file", "metric_evaluator", "max_workers",
                               "enable_sodam", "metric_credentials"}),

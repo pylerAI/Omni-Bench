@@ -20,8 +20,13 @@ to that default, an explicit benchmark-level one is an error.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
+
+
+class InferenceWarning(UserWarning):
+    """An inference setting was adjusted to what the benchmark adapter supports."""
 
 #: new key -> legacy flat key
 LEGACY_KEYS = {
@@ -94,20 +99,7 @@ def resolve_inference(
 
     audio = str(b.get("audio", m.get("audio", DEFAULT_AUDIO))).lower()
 
-    if frame_modes:
-        if "frames" in b:
-            frames = str(b["frames"]).lower()
-            if frames not in frame_modes:
-                raise ValueError(
-                    f"benchmark '{benchmark.name}' sets frames={frames!r}, but its adapter "
-                    f"supports only {list(frame_modes)}"
-                )
-        else:
-            frames = str(m.get("frames", frame_modes[0])).lower()
-            if frames not in frame_modes:
-                frames = frame_modes[0]
-    else:
-        frames = str(b.get("frames", m.get("frames", DEFAULT_FRAMES))).lower()
+    frames = _resolve_frames(model, benchmark, m, b, frame_modes)
 
     settings = InferenceSettings(
         audio=audio,
@@ -117,6 +109,60 @@ def resolve_inference(
     )
     _validate(settings)
     return settings
+
+
+def _known_frames(value: Any, where: str) -> str:
+    from omni_bench.inference.frames import FRAME_STRATEGIES
+
+    name = str(value).lower()
+    try:
+        FRAME_STRATEGIES.get(name)
+    except ValueError as exc:
+        raise ValueError(f"{where}: {exc}") from None
+    return name
+
+
+def _resolve_frames(
+    model: Any,
+    benchmark: Any | None,
+    m: dict[str, Any],
+    b: dict[str, Any],
+    frame_modes: tuple[str, ...] | None,
+) -> str:
+    """Benchmark > model > adapter default. Typos always raise; a known mode the
+    adapter cannot run falls back to its default with a warning, except when the
+    benchmark sets it through ``inference.frames`` (explicit -> error)."""
+    if not frame_modes:
+        if "frames" in b:
+            return _known_frames(b["frames"], f"benchmark '{benchmark.name}'")
+        return _known_frames(m.get("frames", DEFAULT_FRAMES), f"model '{model.name}'")
+
+    default = frame_modes[0]
+    if "frames" in b:
+        where = f"benchmark '{benchmark.name}'"
+        frames = _known_frames(b["frames"], where)
+        if frames in frame_modes:
+            return frames
+        if "frames" in (benchmark.extra.get("inference") or {}):
+            raise ValueError(f"{where} sets frames={frames!r}, but its adapter supports only {list(frame_modes)}")
+        # The legacy key used to be ignored by adapters that only send video.
+        _warn_fallback(where, f"frame_sampling={frames!r}", default, frame_modes)
+        return default
+    if "frames" in m:
+        frames = _known_frames(m["frames"], f"model '{model.name}'")
+        if frames in frame_modes:
+            return frames
+        bench = f" for benchmark '{benchmark.name}'" if benchmark is not None else ""
+        _warn_fallback(f"model '{model.name}'{bench}", f"frames={frames!r}", default, frame_modes)
+    return default
+
+
+def _warn_fallback(where: str, requested: str, used: str, frame_modes: tuple[str, ...]) -> None:
+    warnings.warn(
+        f"{where}: {requested} is not supported by the adapter ({list(frame_modes)}); using frames={used!r}",
+        InferenceWarning,
+        stacklevel=4,
+    )
 
 
 def _validate(settings: InferenceSettings) -> None:

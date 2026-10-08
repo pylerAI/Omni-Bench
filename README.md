@@ -46,6 +46,7 @@ Per-model input handling is selected in the model config's `inference:` block; a
 | `audio` | `native` · `none` · `asr_text` | `native` | Send audio as is · drop it · inject an ASR transcript (engine from `asr.strategy.name`). A benchmark config may override it. |
 | `frames` | `client` · `server` | per benchmark | Client-sampled frames · original video sampled by the model server. Benchmark config > model config > benchmark default. |
 | `transport` | `file` · `base64` | `file` | `file://` URL · base64 data URL (large files via the `transcode:` cache). |
+| `strip_mm_kwargs` | `true` · `false` | `false` | Model config only. Drops `mm_processor_kwargs` / `media_io_kwargs`, which some remote servers reject. |
 
 For `asr_text`, pre-fill the Whisper cache with `uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml`.
 

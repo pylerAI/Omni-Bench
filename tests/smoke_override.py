@@ -19,7 +19,7 @@ from omni_bench.asr.strategies import SttStrategy, register_strategy
 import warnings
 from omni_bench.client import build_chat_client
 from omni_bench.config import BenchmarkConfig, ConfigWarning, ModelConfig, load_config
-from omni_bench.inference import AsrCommandPool, resolve_asr_settings, resolve_inference
+from omni_bench.inference import AsrCommandPool, InferenceWarning, resolve_asr_settings, resolve_inference
 from omni_bench.inference.audio import AsrTextAudio, NoAudio
 
 def resolve_audio_mode(model, benchmark):
@@ -115,10 +115,43 @@ with tempfile.TemporaryDirectory() as tmp:
     assert resolve_inference(plain, bm("worldsense", inference={"frames": "server"}), fm).frames == "server"
     assert resolve_inference(srvm, bm("worldsense"), fm).frames == "server"
     assert resolve_inference(srvm, bm("worldsense", inference={"frames": "client"}), fm).frames == "client"
+    # explicit new key on a server-only adapter -> error
     try:
-        resolve_inference(plain, bm("av_speakerbench", frame_sampling="client"), ("server",))
+        resolve_inference(plain, bm("av_speakerbench", inference={"frames": "client"}), ("server",))
         raise SystemExit("unsupported benchmark frames must raise")
     except ValueError as e: print("unsupported frames rejected:", str(e)[:60])
+    # legacy key there used to be ignored -> warning + adapter default
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        got = resolve_inference(plain, bm("av_speakerbench", frame_sampling="client"), ("server",)).frames
+    assert got == "server", got
+    assert any(issubclass(w.category, InferenceWarning) and "av_speakerbench" in str(w.message)
+               for w in caught), [str(w.message) for w in caught]
+    print("legacy frame_sampling on server-only adapter -> warn + server")
+    # model-level typo -> error (no silent fallback)
+    for typo_model in (ModelConfig(name="t", weight_path="/x", extra={"inference": {"frames": "sever"}}),
+                       ModelConfig(name="t", weight_path="/x", extra={"frame_sampling": "sever"})):
+        try:
+            resolve_inference(typo_model, bm("worldsense"), fm)
+            raise SystemExit("model frames typo must raise")
+        except ValueError as e: print("model frames typo rejected:", str(e)[:60])
+    try:
+        resolve_inference(plain, bm("worldsense", frame_sampling="sever"), fm)
+        raise SystemExit("benchmark frames typo must raise")
+    except ValueError as e: print("benchmark frames typo rejected:", str(e)[:60])
+    # model-level known mode the adapter can't run -> fallback + warning naming everything
+    cli_model = ModelConfig(name="cm", weight_path="/x", extra={"inference": {"frames": "client"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        got = resolve_inference(cli_model, bm("omnidcbench"), ("server",)).frames
+    msgs = [str(w.message) for w in caught if issubclass(w.category, InferenceWarning)]
+    assert got == "server" and msgs and all(t in msgs[0] for t in ("omnidcbench", "'client'", "'server'")), msgs
+    print("unsupported model frames -> fallback + warning:", msgs[0][:80])
+    # no warning on the normal paths
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        resolve_inference(srvm, bm("worldsense"), fm); resolve_inference(plain, bm("av_speakerbench"), ("server",))
+    assert not [w for w in caught if issubclass(w.category, InferenceWarning)]
     try:
         resolve_inference(plain, bm("videomme", inference={"transport": "base64"}), fm)
         raise SystemExit("transport is model-only")
@@ -128,13 +161,14 @@ with tempfile.TemporaryDirectory() as tmp:
     # 9. unknown config keys warn; known extras stay silent
     cfg_path = tmp / "m.yaml"
     cfg_path.write_text("models:\n- name: t\n  weight_path: /x\n  audio_mdoe: none\n"
-                        "benchmarks:\n- name: worldsense\n  num_frames: 8\n  num_frame: 4\n")
+                        "benchmarks:\n- name: worldsense\n  num_frames: 8\n  num_frame: 4\n  max_workers: 2\n")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         load_config(cfg_path, cfg_path)
     msgs = [str(w.message) for w in caught if issubclass(w.category, ConfigWarning)]
     assert any("audio_mdoe" in m for m in msgs) and any("num_frame'" in m for m in msgs), msgs
-    assert not any("'num_frames'" in m.split("known")[0] for m in msgs), msgs
+    assert not any("'num_frames'" in m.split("known")[0] or "'max_workers'" in m.split("known")[0]
+                   for m in msgs), msgs
     print("unknown-key warnings OK:", len(msgs))
 
 print("\nALL OVERRIDE TESTS PASSED")

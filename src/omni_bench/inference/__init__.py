@@ -39,7 +39,7 @@ from omni_bench.inference.base import (
     merge_extra_body,
 )
 from omni_bench.inference.frames import FRAME_STRATEGIES, FrameStrategy
-from omni_bench.inference.settings import InferenceSettings, resolve_inference
+from omni_bench.inference.settings import InferenceSettings, InferenceWarning, resolve_inference
 from omni_bench.inference.transport import TRANSPORTS, Transport
 
 #: Per-request processor/IO overrides. Servers that reject them outright (HTTP
@@ -121,6 +121,7 @@ __all__ = [
     "ImageFrames",
     "InferencePipeline",
     "InferenceSettings",
+    "InferenceWarning",
     "MM_KWARG_KEYS",
     "MediaRequest",
     "Registry",

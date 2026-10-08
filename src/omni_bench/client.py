@@ -8,24 +8,7 @@ from typing import Any, Callable
 from openai import OpenAI
 
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.inference import (
-    MM_KWARG_KEYS,
-    AsrCommandPool,
-    ClientFrames,
-    InferencePipeline,
-    MediaRequest,
-    file_url,
-    merge_extra_body,
-)
-
-__all__ = [
-    "MM_KWARG_KEYS",
-    "ChatCompletionResult",
-    "VllmChatClient",
-    "build_chat_client",
-    "file_url",
-    "merge_extra_body",
-]
+from omni_bench.inference import AsrCommandPool, ClientFrames, InferencePipeline, MediaRequest
 
 
 @dataclass(slots=True)
