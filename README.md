@@ -202,4 +202,4 @@ To add a new benchmark, follow these steps:
 3. Add an entry to `configs/benchmarks/default.yaml` or to a separate benchmark config
 4. Document the protocol, metrics, and output table in `docs/<benchmark_name>.md`
 
-To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`. Per-model input handling (ASR transcript, frame sampling, video transport, reasoning) is set in the config's `inference:` block; see [docs/inference_strategies.md](docs/inference_strategies.md).
+To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`. Per-model input handling (ASR transcript, frame sampling, video transport, reasoning) is set in the config's `inference:` block; see [docs/inference_strategies.md](docs/inference_strategies.md) and, for ASR transcripts, [docs/asr.md](docs/asr.md).

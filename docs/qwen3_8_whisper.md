@@ -229,32 +229,7 @@ src/omni_bench/client.py
   build_chat_client   config -> client (inference pipeline) factory
 ```
 
-**Strategy pattern** — STT engines are swapped behind a single `SttStrategy` interface. Commands do not know which engine is running.
-
-| Strategy name | Engine | Use |
-| --- | --- | --- |
-| `faster_whisper` | CTranslate2 | **Default** — fastest for large offline transcription |
-| `transformers_whisper` | HF pipeline | For reference comparison |
-
-A new engine is registered by subclassing `SttStrategy` and adding `@register_strategy("name")`.
-
-**Command pattern** — every transcription takes a `TranscriptionRequest` and returns a `Transcription`. Only the commands know about the cache, and the JSON they produce is both the on-disk cache format and the contract for downstream analysis scripts.
-
-### Cache
-
-```text
-/gpfs/public/artifacts/ail/omni-bench/cache/asr/<strategy>__<model-slug>/<key[:2]>/<key>.json
-```
-
-The repository lives on NFS (`/home/ail`), which is the wrong place for a store this hot, and transcripts must outlive any particular checkout, so the cache lives on gpfs.
-
-`key` is the SHA-1 of `resolved path + size + mtime`. When an upstream artifact (e.g. a re-extracted `.wav`) changes, the entry is invalidated automatically; changing the strategy or Whisper model changes the namespace, so they never mix.
-
-### Cache-Miss Behavior
-
-The default is `strict_cache: false`: on a cache miss, the evaluation process transcribes inline (the Whisper model is loaded once, at first need). To enforce pre-transcription for reproducibility, set `strict_cache: true` in the config and a cache miss becomes an error.
-
-WorldSense and OmniVideoBench produce their `.wav` files in the adapter's preprocessing step, so running `prepare_asr.py` before that preprocessing finds those files missing. For these two benchmarks, either let the first run fill them via inline transcription, or run the preprocessing once and re-run `prepare_asr.py`.
+Engines, the `asr:` config fields, the transcript cache (layout, keys, file format), and cache-miss behavior are described in [ASR Transcripts](asr.md). This setup uses `faster_whisper` with `Systran/faster-whisper-large-v3` and the shared cache under `/gpfs/public/artifacts/ail/omni-bench/cache/asr/`.
 
 ## Running Evaluations
 
@@ -266,16 +241,7 @@ uv run python scripts/prepare_asr.py \
   --gpus 0,1,2,3 --threads-per-gpu 2
 ```
 
-One worker process per GPU, each with a thread pool. Cached files are skipped, so the job is **resumable**. The summary is saved to `cache/asr/prepare_asr_report.json`.
-
-Main arguments:
-
-| Argument | Description |
-| --- | --- |
-| `--benchmark` | Only specific benchmarks. Repeatable |
-| `--media-root` | Additional directories/files |
-| `--strategy` · `--model` · `--language` | Override config values |
-| `--dry-run` | Only count the target files and exit |
+See [ASR Transcripts — Creating Transcripts](asr.md#creating-transcripts) for GPU distribution, resume, the media collected per benchmark, and all arguments.
 
 ### 2. Serving
 

@@ -45,13 +45,7 @@ The old flat keys `audio_mode`, `frame_sampling`, and `video_transport` are stil
 
 ## ASR Transcripts
 
-For `audio: asr_text`, pre-fill the transcript cache so evaluation is not blocked on ASR:
-
-```bash
-uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml
-```
-
-Available ASR engines: `faster_whisper`, `transformers_whisper`, `vllm_asr`, and `nemo_streaming` (reads an existing cache only). See [qwen3_8_whisper.md](qwen3_8_whisper.md) for details.
+For `audio: asr_text`, the engine, the transcript cache, pre-transcription with `scripts/prepare_asr.py`, and how the transcript enters the prompt are described in [ASR Transcripts](asr.md).
 
 ## Re-scoring Stored Runs
 
