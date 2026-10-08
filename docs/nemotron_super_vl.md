@@ -180,18 +180,18 @@ uv run --no-sync python scripts/pretranscode_videos.py \
 
 # 1. Smoke — 20 items per benchmark, spread across the whole set
 uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink.yaml \
-    --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense \
-    --limit 20 --limit-mode spread --result-dir /tmp/smoke
+    --benchmark worldsense --limit 20 --limit-mode spread --result-dir /tmp/smoke
 
-# 2. Full run — one measurement config file = one run. One benchmark per --benchmark (omit for the whole benchmark config)
-#    model config: {bf16,nvfp4}_{nothink,think}.yaml / bench config: bench_{nothink,think}.yaml
-uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink.yaml \
-    --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense
+# 2. Full run — one measurement config file = one run; it names its benchmark config itself.
+#    One benchmark per --benchmark (omit for every benchmark in that config)
+uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink.yaml --benchmark worldsense
 
 # 3. ASR comparison (Nemotron ASR cache, BF16 · no-think, excluding Video-MME)
 uv run --no-sync omni-bench run --config configs/nemotron_super_vl/bf16_nothink_nemotron_asr.yaml \
-    --benchmark-config configs/nemotron_super_vl/bench_nothink.yaml --benchmark worldsense
+    --benchmark worldsense
 ```
+
+Each measurement config sets `benchmark_config:` (`*_nothink*.yaml` → `bench_nothink.yaml`, `*_think.yaml` → `bench_think.yaml`). `--benchmark-config` on the command line still overrides it.
 
 The model is served remotely only, so `--serve` is not used. During measurement, `HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1` was set to block outbound traffic, and the 4 benchmarks (videomme · worldsense · omnivideobench · av_speakerbench) were run sequentially with the commands above. Long runs go to the background with `nohup … > <log> 2>&1 &`.
 

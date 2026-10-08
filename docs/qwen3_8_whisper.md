@@ -292,13 +292,12 @@ MAX_MODEL_LEN=131072 VLLM_BIN=$UV_PROJECT_ENVIRONMENT/bin/vllm \
 export ALLOWED_LOCAL_MEDIA_PATH=/gpfs/public
 # bench = videomme | worldsense | omnivideobench | av_speakerbench
 
-uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
-    --benchmark-config configs/recommend/bench_thinking.yaml   --benchmark <bench>   # thinking
-uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml \
-    --benchmark-config configs/recommend/bench_nothink.yaml --benchmark <bench>   # non-think
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml --benchmark <bench>   # thinking
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml --benchmark <bench>    # non-think
+# Video-MME: configs/recommend/qwen3_8_27b_videomme_{thinking,nothink}.yaml
 ```
 
-Video-MME does not inject ASR, so it uses separate model configs (`configs/recommend/qwen3_8_27b_videomme_thinking.yaml` · `..._nothink.yaml`).
+Video-MME does not inject ASR, so it uses separate model configs (`configs/recommend/qwen3_8_27b_videomme_thinking.yaml` · `..._nothink.yaml`). Each measurement config names its benchmark config with `benchmark_config:` (`bench_thinking.yaml` · `bench_nothink.yaml` · `bench_videomme_thinking.yaml` · `bench_videomme_nothink.yaml`); `--benchmark-config` still overrides it.
 
 ### 4. Backfilling Truncated Items
 
@@ -327,7 +326,7 @@ Runs recorded before this setting existed are re-scored without inference by re-
 
 ```bash
 uv run omni-bench rescore --run-dir results/qwen3.8-27b-whisper-srvthink \
-    --benchmark-config configs/recommend/bench_thinking.yaml \
+    --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
     --reasoning think_tag --out-dir results_rescored
 ```
 

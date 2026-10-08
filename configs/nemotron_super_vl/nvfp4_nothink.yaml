@@ -4,6 +4,7 @@
 # 모델별 차이: 원격 공유 서버(max_model_len 65,536, local media 경로 불가) →
 # inference.transport base64 + 대용량 트랜스코드, mm_processor_kwargs 제거,
 # Nemotron 3 Super 공식 샘플링(temp 1.0 / top_p 0.95, think·no-think 동일).
+benchmark_config: bench_nothink.yaml   # paired benchmark config (CLI --benchmark-config overrides)
 global:
   result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
   request_timeout_s: 3600

@@ -7,8 +7,15 @@ Models differ in how they take inputs and return answers: some accept audio and 
 ```bash
 uv run omni-bench run \
   --config configs/models/<model>.yaml \
-  --benchmark-config configs/benchmarks/default.yaml \
   --benchmark worldsense
+```
+
+A model config may also name its benchmark config with the top-level key `benchmark_config:` (path relative to the model config file), so one `--config` describes a whole measurement. Precedence: `--benchmark-config` on the command line > `benchmark_config:` > `configs/benchmarks/default.yaml`. The resolved path is saved as `benchmark_config_path` in `config_used.json`.
+
+```yaml
+benchmark_config: bench_thinking.yaml
+models:
+  - name: qwen3.8-27b-whisper-srvthink
 ```
 
 Adapters do not branch on these choices. Prompts, answer parsing, and scoring are the same for every strategy.
@@ -48,7 +55,7 @@ Available ASR engines: `faster_whisper`, `transformers_whisper`, `vllm_asr`, and
 
 ## Re-scoring Stored Runs
 
-`omni-bench rescore` applies a reasoning strategy to stored records and re-runs each adapter's parser and summary without inference. It never modifies the source directory.
+`omni-bench rescore` applies a reasoning strategy to stored records and re-runs each adapter's parser and summary without inference. It never modifies the source directory. For runs without `config_used.json`, pass the model config with `--config` (its `benchmark_config:` is used) or `--benchmark-config`.
 
 ```bash
 uv run omni-bench rescore \

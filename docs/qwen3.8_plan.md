@@ -157,10 +157,10 @@ MAX_MODEL_LEN=131072 VLLM_BIN=$UV_PROJECT_ENVIRONMENT/bin/vllm \
     bash scripts/serve_qwen3_8_27b.sh
 
 # 3. Evaluation (bench = videomme | worldsense | omnivideobench | av_speakerbench)
-uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
-    --benchmark-config configs/recommend/bench_thinking.yaml   --benchmark <bench>   # thinking
-uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml \
-    --benchmark-config configs/recommend/bench_nothink.yaml --benchmark <bench>   # non-think
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml --benchmark <bench>   # thinking
+uv run omni-bench run --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml --benchmark <bench>    # non-think
+# Video-MME: configs/recommend/qwen3_8_27b_videomme_{thinking,nothink}.yaml
+# Each config names its benchmark config (benchmark_config:); --benchmark-config still overrides it.
 
 # 4. Backfill truncated items — after removal, re-running step 3 retries only those items
 python scripts/strip_truncated.py all
