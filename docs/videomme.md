@@ -27,7 +27,12 @@ Video-MME is a long-video multimodal understanding benchmark. It is well suited 
 
 The adapter writes `official_results.json` in the nested response format expected by the official evaluation script. Accuracy is defined as what the official Video-MME evaluator computes.
 
-When `use_subtitles: true`, the subtitle text is prepended to the prompt; the default is `false`. The adapter stores model responses as `official_results.json`, a nested JSON structure matching the official `output_test_template.json`, and accuracy is computed by the official evaluator.
+Two optional inputs follow the official protocol; both default to `false`, which keeps the frames-only setting.
+
+- `use_subtitles: true`: reads the official SRT for each video from `subtitle_dir` (default `<video_dir>/../subtitle`, file name = video file stem) and prepends only the cues covering the sampled frames' timestamps, as the official README requires (`This video's subtitles are listed below:` + cues). `subtitle_max_chars` caps the length.
+- `use_audio: true`: demuxes each video's audio once to a 16 kHz mono WAV in `audio_cache_dir` (default `<video_dir>/../preprocess_cache`) and sends it with the frames.
+
+Both change the model input and therefore the score; `summary.json` records `use_subtitles` and `use_audio`. The adapter stores model responses as `official_results.json`, a nested JSON structure matching the official `output_test_template.json`, and accuracy is computed by the official evaluator.
 
 ## Throughput
 
