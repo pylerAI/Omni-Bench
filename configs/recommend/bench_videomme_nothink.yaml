@@ -8,6 +8,7 @@ benchmarks:
   max_tokens: 8192
   temperature: 0.7
   use_subtitles: false
-  audio_mode: none
-  frame_sampling: server
+  inference:
+    audio: none
+    frames: server
   concurrency: 12

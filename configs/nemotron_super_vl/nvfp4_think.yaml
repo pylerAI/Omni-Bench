@@ -1,8 +1,8 @@
 # Nemotron-3.5-Super-VL NVFP4 · thinking
-# Qwen3.8-27B recommend config 와 동일한 입력 조건 (frame_sampling: server ·
-# Whisper transcript 주입 · Video-MME 는 벤치 설정에서 audio_mode none).
+# Qwen3.8-27B recommend config 와 동일한 입력 조건 (inference.frames: server ·
+# Whisper transcript 주입 · Video-MME 는 벤치 설정에서 inference.audio none).
 # 모델별 차이: 원격 공유 서버(max_model_len 65,536, local media 경로 불가) →
-# video_transport base64 + 대용량 트랜스코드, mm_processor_kwargs 제거,
+# inference.transport base64 + 대용량 트랜스코드, mm_processor_kwargs 제거,
 # Nemotron 3 Super 공식 샘플링(temp 1.0 / top_p 0.95, think·no-think 동일).
 global:
   result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
@@ -12,9 +12,10 @@ models:
   served_model_name: nemotron-3.5-super-vl-nvfp4
   weight_path: /dev/null   # 원격 서버 전용 — --serve 금지
   base_url: http://vllm-nemotron-3-5-super-vl-nvfp4.vllm:8000/v1
-  audio_mode: asr_text
-  video_transport: base64
-  strip_mm_kwargs: true
+  inference:
+    audio: asr_text
+    transport: base64
+    strip_mm_kwargs: true
   transcode:
     threshold_mb: 200
     cache_dir: /gpfs/public/artifacts/ail/nemotron-compare/cache/transcode

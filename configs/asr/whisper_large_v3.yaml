@@ -1,4 +1,4 @@
-# Shared ASR settings. Referenced by model configs (audio_mode: asr_text) and by
+# Shared ASR settings. Referenced by model configs (inference.audio: asr_text) and by
 # scripts/prepare_asr.py.
 asr:
   strategy:

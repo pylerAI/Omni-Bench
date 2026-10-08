@@ -11,7 +11,8 @@ models:
     served_model_name: Qwen3.8-27B
     weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
     base_url: http://127.0.0.1:8000/v1
-    audio_mode: asr_text
+    inference:
+      audio: asr_text
     # Qwen3.8-27B's chat template opens <think> by default. Left on, the reply
     # carries the reasoning trace ahead of the answer, and the benchmarks'
     # official parsers take the first A-D match they see — the trace itself

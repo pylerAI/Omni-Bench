@@ -7,8 +7,9 @@ benchmarks:
   max_tokens: 32768
   temperature: 1.0
   use_subtitles: false
-  audio_mode: none          # official 프로토콜: audio 미사용 → transcript 주입 없음
-  frame_sampling: server
+  inference:
+    audio: none   # official 프로토콜: audio 미사용 → transcript 주입 없음
+    frames: server
   concurrency: 48
 - name: worldsense
   data_path: /gpfs/public/datasets/WorldSense
@@ -17,7 +18,8 @@ benchmarks:
   max_tokens: 32768
   temperature: 1.0
   concurrency: 48
-  frame_sampling: server
+  inference:
+    frames: server
 - name: omnivideobench
   annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
   video_dir: /gpfs/public/datasets/OmniVideoBench
@@ -27,7 +29,8 @@ benchmarks:
   max_workers: 48
   preprocess_workers: 8
   preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
-  frame_sampling: server
+  inference:
+    frames: server
   # system_prompt 미지정 → 어댑터 기본값("You are Qwen, ...")을 그대로 쓴다.
   # Qwen3.8 · Nemotron-Omni 런과 동일 조건을 유지하기 위함.
 - name: av_speakerbench

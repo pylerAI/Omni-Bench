@@ -3,7 +3,7 @@
 # launch it ourselves, so there is no serve script and `--serve` must not be used.
 # No audio encoder → audio goes in as a Whisper transcript (same cascade as Qwen3.8).
 # Server constraints: no file:// media (→ base64 + transcode of >200MB files),
-# per-request mm_processor_kwargs rejected (→ strip_mm_kwargs).
+# per-request mm_processor_kwargs rejected (→ inference.strip_mm_kwargs).
 # Sampling follows the official Nemotron 3 Super card (temperature 1.0 / top_p 0.95,
 # think and no-think alike). temperature/max_tokens live in the benchmark config —
 # measured with configs/nemotron_super_vl/bench_{nothink,think}.yaml.
@@ -17,9 +17,10 @@ models:
     served_model_name: nemotron-3.5-super-vl-bf16
     weight_path: /dev/null   # remote endpoint only — never --serve
     base_url: http://vllm-nemotron-3-5-super-vl-bf16.vllm:8000/v1
-    audio_mode: asr_text
-    video_transport: base64
-    strip_mm_kwargs: true
+    inference:
+      audio: asr_text
+      transport: base64
+      strip_mm_kwargs: true
     transcode:
       threshold_mb: 200
       cache_dir: /gpfs/public/artifacts/ail/nemotron-compare/cache/transcode

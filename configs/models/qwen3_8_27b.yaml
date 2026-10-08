@@ -6,7 +6,7 @@
 # describe. Both suggest the transcript's contribution may be small or negative
 # in places, and E1 - E0 is the only way to measure it.
 #
-# Video-MME is not part of this: it is already audio_mode none at the benchmark
+# Video-MME is not part of this: it is already inference.audio none at the benchmark
 # level, so E0 and E1 send byte-identical inputs there.
 global:
   result_dir: /gpfs/public/artifacts/ail/omni-bench/runs/results
@@ -17,7 +17,8 @@ models:
     served_model_name: Qwen3.8-27B
     weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
     base_url: http://127.0.0.1:8001/v1
-    audio_mode: none
+    inference:
+      audio: none
     extra_body:
       chat_template_kwargs:
         enable_thinking: false

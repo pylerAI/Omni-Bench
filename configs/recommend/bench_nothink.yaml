@@ -1,4 +1,4 @@
-# non-thinking 벤치 설정 · frame_sampling: server
+# non-thinking 벤치 설정 · inference.frames: server
 # recommend config — docs/qwen3.8_plan.md 참고
 benchmarks:
 - name: worldsense
@@ -8,7 +8,8 @@ benchmarks:
   max_tokens: 4096
   temperature: 0.7
   concurrency: 12
-  frame_sampling: server
+  inference:
+    frames: server
 - name: omnivideobench
   annotation_file: /gpfs/public/datasets/OmniVideoBench/data.parquet
   video_dir: /gpfs/public/datasets/OmniVideoBench
@@ -18,7 +19,8 @@ benchmarks:
   max_workers: 12
   preprocess_workers: 8
   preprocess_cache_dir: /gpfs/public/datasets/OmniVideoBench/preprocess_cache
-  frame_sampling: server
+  inference:
+    frames: server
 - name: av_speakerbench
   data_path: /gpfs/public/datasets/AV-SpeakerBench/
   split: test
