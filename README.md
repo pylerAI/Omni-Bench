@@ -68,7 +68,7 @@ src/omni_bench/
   adapters/
   cli.py
   client.py
-  inference/      audio / frames / transport strategy registries
+  inference/      audio / frames / transport / reasoning strategy registries
   config.py
   io.py
 submodules/
