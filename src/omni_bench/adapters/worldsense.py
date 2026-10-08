@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, read_jsonl_records, summarize_accuracy, write_json
 
@@ -76,6 +77,8 @@ AUDIO_CLASSES = ["Speech", "Event", "Music"]
 
 class WorldSenseAdapter(BenchmarkAdapter):
     name = "worldsense"
+    # Client-side 8 frames, matching VLMEvalKit.
+    frame_modes = ("client",)
 
     def run(
         self,
@@ -116,21 +119,17 @@ class WorldSenseAdapter(BenchmarkAdapter):
             media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
             completion = client.complete(
                 prompt,
-                image_urls=media["image_urls"],
+                video_path=video_path,
+                frames=lambda: ImageFrames(media["image_urls"]),
                 audio_path=media["audio_path"],
                 max_tokens=benchmark.max_tokens,
                 temperature=benchmark.temperature,
                 system_prompt=SYS,
             )
-            response = completion.text
-            parsed = extract_characters_regex(response)
+            record = {**row, "prompt": prompt, "response": completion.text}
             return {
-                **row,
-                "prompt": prompt,
-                "response": response,
-                "parsed_answer": parsed,
-                "is_correct": parsed == row["answer"],
-                "score": int(parsed == row["answer"]) if parsed else -1,
+                **record,
+                **self.parse_record(record),
                 "latency_s": completion.latency_s,
                 "prompt_tokens": completion.prompt_tokens,
                 "completion_tokens": completion.completion_tokens,
@@ -147,6 +146,18 @@ class WorldSenseAdapter(BenchmarkAdapter):
                     records.append(record)
                     append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_characters_regex(record.get("response") or "")
+        return {
+            "parsed_answer": parsed,
+            "is_correct": parsed == record["answer"],
+            "score": int(parsed == record["answer"]) if parsed else -1,
+        }
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("domain", "sub_category", "task_domain", "task_type", "duration"))
         summary["missing_videos"] = sum(1 for row in records if row.get("error"))
         summary["vlmeval_rating_file"] = str(output_dir / "vlmeval_rating.json")

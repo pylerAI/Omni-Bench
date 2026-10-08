@@ -17,12 +17,15 @@ from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import VideoFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
     name = "omnivideobench"
+    # Client-side frames, sent as one JPEG-sequence video.
+    frame_modes = ("client",)
 
     def run(
         self,
@@ -81,10 +84,19 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
                 records.append(record)
                 append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        return parse_answer(record)
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
-        summary["max_workers"] = max_workers
-        summary["preprocess_workers"] = preprocess_workers
-        summary["preprocess_cache_dir"] = str(cache_dir)
+        summary["max_workers"] = int(benchmark.extra.get("max_workers", 2))
+        summary["preprocess_workers"] = int(benchmark.extra.get("preprocess_workers", 4))
+        summary["preprocess_cache_dir"] = str(Path(
+            benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
+        ).expanduser())
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
@@ -175,7 +187,8 @@ def run_single_item(
     try:
         completion = client.complete(
             prompt,
-            video_url=sampled_video["data_url"],
+            video_path=item["video_path"],
+            frames=lambda: client_frames(sampled_video),
             audio_path=audio_path if audio_path else None,
             max_tokens=int(benchmark.extra.get("max_tokens", 1024)),
             temperature=float(benchmark.extra.get("temperature", 0.7)),
@@ -185,27 +198,11 @@ def run_single_item(
                 "system_prompt",
                 "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
             ),
-            extra_body={
-                "media_io_kwargs": {
-                    "video": {
-                        "num_frames": sampled_video["num_frames"],
-                        "fps": sampled_video["sample_fps"],
-                        "total_num_frames": sampled_video["total_frames"],
-                        "frames_indices": sampled_video["frame_indices"],
-                        "duration": sampled_video["duration_s"],
-                    }
-                },
-                "mm_processor_kwargs": {"use_audio_in_video": False},
-            },
         )
-        response = completion.text
-        parsed = extract_model_answer(response, prompt)
+        record = {**item, "prompt": prompt, "response": completion.text}
         return {
-            **item,
-            "prompt": prompt,
-            "response": response,
-            "parsed_answer": parsed,
-            "is_correct": clean_text(parsed) == clean_text(item["answer"]),
+            **record,
+            **parse_answer(record),
             "latency_s": completion.latency_s,
             "prompt_tokens": completion.prompt_tokens,
             "completion_tokens": completion.completion_tokens,
@@ -227,6 +224,32 @@ def run_single_item(
             "preprocess_cache_path": str(cache_path),
             "error": repr(exc),
         }
+
+
+def parse_answer(record: dict[str, Any]) -> dict[str, Any]:
+    """Official answer extraction and match for one record."""
+    parsed = extract_model_answer(record.get("response") or "", record.get("prompt"))
+    return {"parsed_answer": parsed, "is_correct": clean_text(parsed) == clean_text(record["answer"])}
+
+
+def client_frames(sampled_video: dict[str, Any]) -> VideoFrames:
+    """The cached JPEG sequence as one video, with the metadata vLLM needs to
+    treat it as already sampled."""
+    return VideoFrames(
+        url=sampled_video["data_url"],
+        extra_body={
+            "media_io_kwargs": {
+                "video": {
+                    "num_frames": sampled_video["num_frames"],
+                    "fps": sampled_video["sample_fps"],
+                    "total_num_frames": sampled_video["total_frames"],
+                    "frames_indices": sampled_video["frame_indices"],
+                    "duration": sampled_video["duration_s"],
+                }
+            },
+            "mm_processor_kwargs": {"use_audio_in_video": False},
+        },
+    )
 
 
 def preprocess_videos(

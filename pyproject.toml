@@ -19,6 +19,11 @@ dependencies = [
     "vllm[audio]",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 omni-bench = "omni_bench.cli:main"
 
@@ -28,3 +33,6 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
