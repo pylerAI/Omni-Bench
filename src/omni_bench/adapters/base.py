@@ -10,6 +10,9 @@ from omni_bench.config import BenchmarkConfig, ModelConfig
 
 class BenchmarkAdapter(ABC):
     name: str
+    #: Frames strategies this benchmark can run with; the first is its protocol
+    #: default. Adapters that only ever hand over the original video keep "server".
+    frame_modes: tuple[str, ...] = ("server",)
 
     @abstractmethod
     def run(

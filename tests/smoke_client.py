@@ -1,4 +1,4 @@
-"""Exercise the audio-mode clients with a stubbed OpenAI SDK (no server needed)."""
+"""Exercise the audio strategies with a stubbed OpenAI SDK (no server needed)."""
 import subprocess, sys, tempfile, types
 from pathlib import Path
 
@@ -24,8 +24,9 @@ sys.modules["openai"] = openai_stub
 from omni_bench.asr import AsrSettings, TranscribeCommand, build_cache, build_strategy
 from omni_bench.asr.schema import TranscriptionSegment
 from omni_bench.asr.strategies import SttStrategy, register_strategy
-from omni_bench.asr_client import AsrTextChatClient, NoAudioChatClient, build_chat_client
-from omni_bench.client import VllmChatClient
+from omni_bench.client import build_chat_client
+from omni_bench.inference import ImageFrames
+from omni_bench.inference.audio import AsrTextAudio, NativeAudio, NoAudio
 from omni_bench.config import ModelConfig
 
 @register_strategy("fake2")
@@ -57,11 +58,12 @@ with tempfile.TemporaryDirectory() as tmp:
         if asr: extra["asr"] = asr
         return ModelConfig(name="m", weight_path="/x", base_url="http://x/v1", extra=extra)
 
-    # --- factory dispatch ---
-    assert type(build_chat_client(model("native"))) is VllmChatClient
-    assert type(build_chat_client(model("none"))) is NoAudioChatClient
-    assert type(build_chat_client(model("asr_text", asr_raw))) is AsrTextChatClient
-    assert type(build_chat_client(ModelConfig(name="m", weight_path="/x"))) is VllmChatClient  # default
+    # --- registry dispatch ---
+    audio_of = lambda c: type(c.pipeline.audio)
+    assert audio_of(build_chat_client(model("native"))) is NativeAudio
+    assert audio_of(build_chat_client(model("none"))) is NoAudio
+    assert audio_of(build_chat_client(model("asr_text", asr_raw))) is AsrTextAudio
+    assert audio_of(build_chat_client(ModelConfig(name="m", weight_path="/x"))) is NativeAudio  # default
     try:
         build_chat_client(model("bogus")); raise SystemExit("should have raised")
     except ValueError as exc:
@@ -80,8 +82,10 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # --- audio_mode: asr_text, explicit audio file (worldsense/omnivideobench) ---
     sent.clear()
-    c = build_chat_client(model("asr_text", asr_raw))
-    c.complete("QUESTION", image_urls=["data:image/jpeg;base64,xx"], audio_path=wav)
+    # worldsense-style adapter: client frames by default
+    c = build_chat_client(model("asr_text", asr_raw), frame_modes=("client", "server"))
+    frames = lambda: ImageFrames(["data:image/jpeg;base64,xx"])
+    c.complete("QUESTION", video_path=mp4, frames=frames, audio_path=wav)
     call = sent[-1]
     assert parts(call) == ["image_url", "text"], parts(call)
     body = text_of(call)
@@ -91,6 +95,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     # --- audio_mode: asr_text, audio inside the video (av_speakerbench/omnidcbench) ---
     sent.clear()
+    c = build_chat_client(model("asr_text", asr_raw))     # av_speakerbench: server frames
     c.complete("QUESTION", video_path=mp4,
                extra_body={"mm_processor_kwargs": {"use_audio_in_video": True}})
     call = sent[-1]
@@ -99,13 +104,28 @@ with tempfile.TemporaryDirectory() as tmp:
     assert call["extra_body"]["mm_processor_kwargs"]["use_audio_in_video"] is False
     print("asr_text (audio in video) OK")
 
-    # --- Video-MME shape: frames only, no audio anywhere -> untouched ---
+    # --- Video-MME shape: client frames, no audio file -> the video's own track is
+    # not sent either, so asr_text adds nothing ---
     sent.clear()
-    c.complete("QUESTION", image_urls=["data:image/jpeg;base64,xx"])
+    c = build_chat_client(model("asr_text", asr_raw), frame_modes=("client", "server"))
+    c.complete("QUESTION", video_path=mp4, frames=frames)
     call = sent[-1]
     assert text_of(call) == "QUESTION", text_of(call)
     assert parts(call) == ["image_url", "text"]
     print("videomme passthrough OK")
+
+    # --- frames=server for the same adapter: original video, transcript from its track ---
+    sent.clear()
+    srv = ModelConfig(name="m", weight_path="/x", base_url="http://x/v1",
+                      extra={"inference": {"audio": "asr_text", "frames": "server"}, "asr": asr_raw})
+    c = build_chat_client(srv, frame_modes=("client", "server"))
+    c.complete("QUESTION", video_path=mp4, frames=lambda: (_ for _ in ()).throw(AssertionError("sampled")))
+    call = sent[-1]
+    assert parts(call) == ["video_url", "text"] and "spoken words" in text_of(call)
+    # an adapter that only sends video keeps server even if the model asks for client
+    cli = ModelConfig(name="m", weight_path="/x", extra={"inference": {"frames": "client"}})
+    assert build_chat_client(cli, frame_modes=("server",)).frames_mode == "server"
+    print("frames strategies OK")
 
     # --- strict_cache refuses to transcribe inline ---
     strict = dict(asr_raw, strict_cache=True, cache_dir=str(tmp / "empty-cache"))

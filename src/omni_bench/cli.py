@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
-from omni_bench.asr_client import AsrCommandPool, build_chat_client, resolve_audio_mode
+from omni_bench.client import build_chat_client
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
+from omni_bench.inference import AsrCommandPool
 from omni_bench.io import ensure_dir, write_json
 from omni_bench.perf import summarize_perf
 from omni_bench.report import render_report
@@ -79,23 +80,23 @@ def run(args: argparse.Namespace) -> None:
             model_summary: dict[str, object] = {}
             for benchmark in benchmarks:
                 adapter = get_adapter(benchmark.name)
-                # audio_mode is resolved per benchmark: a benchmark whose official
-                # protocol excludes audio stays audio-free even in asr_text mode.
+                # Inference strategies are resolved per benchmark: a benchmark whose
+                # official protocol excludes audio stays audio-free even in asr_text
+                # mode, and frames are limited to what the adapter supports.
                 client = build_chat_client(
                     model,
                     default_timeout_s=cfg.request_timeout_s,
                     benchmark=benchmark,
+                    frame_modes=adapter.frame_modes,
                     pool=asr_pool,
                 )
-                print(
-                    f"[{model.name}/{benchmark.name}] audio_mode="
-                    f"{resolve_audio_mode(model, benchmark)}"
-                )
+                print(f"[{model.name}/{benchmark.name}] {client.pipeline.settings.describe()}")
                 output_dir = ensure_dir(
                     cfg.result_dir / model.name / (benchmark.result_subdir or benchmark.name)
                 )
                 write_config_snapshot(output_dir, args=args, model=model, benchmarks=[benchmark],
-                                      result_dir=cfg.result_dir, timeout_s=cfg.request_timeout_s)
+                                      result_dir=cfg.result_dir, timeout_s=cfg.request_timeout_s,
+                                      inference=dataclasses.asdict(client.pipeline.settings))
                 started = time.perf_counter()
                 summary = adapter.run(
                     benchmark=benchmark,
@@ -151,7 +152,7 @@ def _git_state() -> dict[str, Any]:
 
 def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: ModelConfig,
                           benchmarks: list[BenchmarkConfig], result_dir: Path,
-                          timeout_s: float) -> None:
+                          timeout_s: float, inference: dict[str, Any] | None = None) -> None:
     """``config_used.json`` in the benchmark dir and the run (model) dir.
 
     The run-level copy is overwritten by each benchmark invocation, so the
@@ -165,6 +166,7 @@ def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: 
         "result_dir": str(result_dir),
         "request_timeout_s": timeout_s,
         "git": _git_state(),
+        "inference": inference,
         "model": dataclasses.asdict(model),
         "benchmarks": [dataclasses.asdict(b) for b in benchmarks],
     }

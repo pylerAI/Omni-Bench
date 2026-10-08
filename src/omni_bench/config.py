@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,45 @@ class RunConfig:
     request_timeout_s: float = 600.0
 
 
+class ConfigWarning(UserWarning):
+    """A config key that no code reads (likely a typo)."""
+
+
+TOP_LEVEL_KEYS = frozenset({"global", "models", "benchmarks"})
+GLOBAL_KEYS = frozenset({"result_dir", "request_timeout_s"})
+
+#: Model keys outside the ModelConfig fields that code actually reads.
+MODEL_EXTRA_KEYS = frozenset({
+    "inference", "extra_body", "asr", "transcode",
+    # legacy spellings of inference.* (still honoured)
+    "audio_mode", "frame_sampling", "video_transport", "strip_mm_kwargs",
+})
+
+#: Benchmark keys outside the BenchmarkConfig fields, per adapter. "*" applies to all.
+BENCHMARK_EXTRA_KEYS: dict[str, frozenset[str]] = {
+    "*": frozenset({"inference", "audio_mode", "frame_sampling", "asr", "concurrency", "limit_mode"}),
+    "av_speakerbench": frozenset({"dataset_name", "category", "sub_category", "task_id"}),
+    "omnidcbench": frozenset({"run_metrics", "metric_gt_file", "metric_evaluator", "max_workers",
+                              "enable_sodam", "metric_credentials"}),
+    "omnivideobench": frozenset({"max_frames", "num_frames", "fps", "max_workers", "preprocess_workers",
+                                 "preprocess_cache_dir", "top_p", "do_sample", "system_prompt"}),
+    "videomme": frozenset({"max_frames", "max_pixels", "use_subtitles", "subtitle_dir",
+                           "subtitle_max_chars", "use_audio", "audio_cache_dir"}),
+    "worldsense": frozenset({"num_frames", "preprocess_cache_dir"}),
+}
+
+
+def _warn_unknown(kind: str, name: str, extra: dict[str, Any], allowed: frozenset[str]) -> None:
+    unknown = sorted(set(extra) - allowed)
+    if unknown:
+        warnings.warn(
+            f"{kind} '{name}': unknown config key(s) {unknown} are ignored "
+            f"(misspelled? known extra keys: {sorted(allowed)})",
+            ConfigWarning,
+            stacklevel=3,
+        )
+
+
 def _known_keys(cls: type) -> set[str]:
     return set(cls.__dataclass_fields__.keys())  # type: ignore[attr-defined]
 
@@ -82,12 +122,16 @@ def _load_model(raw: dict[str, Any]) -> ModelConfig:
     vllm_raw = data.pop("vllm", {}) or {}
     data["vllm"] = VllmConfig(**vllm_raw)
     data["extra"] = extra
+    _warn_unknown("model", str(data.get("name")), extra, MODEL_EXTRA_KEYS)
     return ModelConfig(**data)
 
 
 def _load_benchmark(raw: dict[str, Any]) -> BenchmarkConfig:
     data, extra = _split_known(raw, BenchmarkConfig)
     data["extra"] = extra
+    name = str(data.get("name"))
+    _warn_unknown("benchmark", name, extra,
+                  BENCHMARK_EXTRA_KEYS["*"] | BENCHMARK_EXTRA_KEYS.get(name, frozenset()))
     return BenchmarkConfig(**data)
 
 
@@ -109,7 +153,10 @@ def load_config(path: str | Path, benchmark_path: str | Path | None = None) -> R
     benchmark_config_path = Path(benchmark_path) if benchmark_path else DEFAULT_BENCHMARK_CONFIG
     benchmark_config_path, benchmark_raw = _read_yaml(benchmark_config_path)
 
+    for label, doc in ((str(config_path), raw), (str(benchmark_config_path), benchmark_raw)):
+        _warn_unknown("config file", label, doc, TOP_LEVEL_KEYS)
     global_cfg = {**(benchmark_raw.get("global", {}) or {}), **(raw.get("global", {}) or {})}
+    _warn_unknown("global", "global", global_cfg, GLOBAL_KEYS)
     result_dir = Path(global_cfg.get("result_dir", "results"))
     result_dir = _resolve_path(result_dir, base_dir=config_path.parent)
 

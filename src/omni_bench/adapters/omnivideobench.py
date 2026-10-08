@@ -17,12 +17,15 @@ from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import VideoFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class OmniVideoBenchAdapter(BenchmarkAdapter):
     name = "omnivideobench"
+    # Client-side frames by default, sent as one JPEG-sequence video.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -174,11 +177,10 @@ def run_single_item(
     sampled_video = read_json(cache_path)
     audio_path = sampled_video.get("audio_path")
     try:
-        server_side = str(benchmark.extra.get("frame_sampling", "client")).lower() == "server"
         completion = client.complete(
             prompt,
-            video_url=None if server_side else sampled_video["data_url"],
-            video_path=item["video_path"] if server_side else None,
+            video_path=item["video_path"],
+            frames=lambda: client_frames(sampled_video),
             audio_path=audio_path if audio_path else None,
             # max_tokens/temperature 는 BenchmarkConfig 의 정식 필드다. extra 에서
             # 읽으면 _split_known() 이 이미 빼내 갔으므로 항상 하드코딩 기본값이
@@ -192,18 +194,6 @@ def run_single_item(
                 "system_prompt",
                 "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
             ),
-            extra_body=None if server_side else {
-                "media_io_kwargs": {
-                    "video": {
-                        "num_frames": sampled_video["num_frames"],
-                        "fps": sampled_video["sample_fps"],
-                        "total_num_frames": sampled_video["total_frames"],
-                        "frames_indices": sampled_video["frame_indices"],
-                        "duration": sampled_video["duration_s"],
-                    }
-                },
-                "mm_processor_kwargs": {"use_audio_in_video": False},
-            },
         )
         response = completion.text
         parsed = extract_model_answer(response, prompt)
@@ -231,6 +221,26 @@ def run_single_item(
             "preprocess_cache_path": str(cache_path),
             "error": repr(exc),
         }
+
+
+def client_frames(sampled_video: dict[str, Any]) -> VideoFrames:
+    """The cached JPEG sequence as one video, with the metadata vLLM needs to
+    treat it as already sampled."""
+    return VideoFrames(
+        url=sampled_video["data_url"],
+        extra_body={
+            "media_io_kwargs": {
+                "video": {
+                    "num_frames": sampled_video["num_frames"],
+                    "fps": sampled_video["sample_fps"],
+                    "total_num_frames": sampled_video["total_frames"],
+                    "frames_indices": sampled_video["frame_indices"],
+                    "duration": sampled_video["duration_s"],
+                }
+            },
+            "mm_processor_kwargs": {"use_audio_in_video": False},
+        },
+    )
 
 
 def preprocess_videos(

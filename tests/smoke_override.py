@@ -1,4 +1,4 @@
-"""Benchmark-level audio_mode override, ASR settings merge, and command pooling."""
+"""Benchmark-level inference override, ASR settings merge, command pooling, config warnings."""
 import subprocess, sys, tempfile, types
 from pathlib import Path
 sys.path.insert(0, str(Path("src").resolve()))
@@ -16,12 +16,14 @@ m = types.ModuleType("openai"); m.OpenAI = _OpenAI; sys.modules["openai"] = m
 
 from omni_bench.asr.schema import TranscriptionSegment
 from omni_bench.asr.strategies import SttStrategy, register_strategy
-from omni_bench.asr_client import (
-    AsrCommandPool, AsrTextChatClient, NoAudioChatClient, build_chat_client,
-    resolve_asr_settings, resolve_audio_mode,
-)
-from omni_bench.client import VllmChatClient
-from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
+import warnings
+from omni_bench.client import build_chat_client
+from omni_bench.config import BenchmarkConfig, ConfigWarning, ModelConfig, load_config
+from omni_bench.inference import AsrCommandPool, resolve_asr_settings, resolve_inference
+from omni_bench.inference.audio import AsrTextAudio, NoAudio
+
+def resolve_audio_mode(model, benchmark):
+    return resolve_inference(model, benchmark).audio
 
 loads = []
 @register_strategy("fake3")
@@ -60,7 +62,7 @@ with tempfile.TemporaryDirectory() as tmp:
     pool = AsrCommandPool()
     c_vm = build_chat_client(model, benchmark=bm("videomme", audio_mode="none"), pool=pool)
     c_ws = build_chat_client(model, benchmark=bm("worldsense"), pool=pool)
-    assert type(c_vm) is NoAudioChatClient and type(c_ws) is AsrTextChatClient
+    assert type(c_vm.pipeline.audio) is NoAudio and type(c_ws.pipeline.audio) is AsrTextAudio
 
     # 3. Video-MME really gets no transcript even with audio present
     sent.clear()
@@ -88,7 +90,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "truncated" not in text_of(sent[-1])
     print("per-benchmark max_chars OK; engine loads:", loads)
     assert len(loads) == 1, f"engine must load once, got {loads}"
-    assert c_trunc.command is c_ws.command, "pool must hand out the same command"
+    assert c_trunc.pipeline.audio.command is c_ws.pipeline.audio.command, "pool must hand out the same command"
 
     # 6. real config: videomme pinned to none, others inherit asr_text
     cfg = load_config("configs/models/qwen3_8_27b_whisper.yaml")
@@ -103,5 +105,36 @@ with tempfile.TemporaryDirectory() as tmp:
     print("qwen3-omni modes:", modeso)
     assert modeso["videomme"] == "none" and all(
         v == "native" for k, v in modeso.items() if k != "videomme")
+
+    # 8. frames: benchmark > model > adapter default; adapter limits apply
+    fm = ("client", "server")
+    plain = ModelConfig(name="p", weight_path="/x")
+    srvm = ModelConfig(name="s", weight_path="/x", extra={"inference": {"frames": "server"}})
+    assert resolve_inference(plain, bm("worldsense"), fm).frames == "client"
+    assert resolve_inference(plain, bm("worldsense", frame_sampling="server"), fm).frames == "server"
+    assert resolve_inference(plain, bm("worldsense", inference={"frames": "server"}), fm).frames == "server"
+    assert resolve_inference(srvm, bm("worldsense"), fm).frames == "server"
+    assert resolve_inference(srvm, bm("worldsense", inference={"frames": "client"}), fm).frames == "client"
+    try:
+        resolve_inference(plain, bm("av_speakerbench", frame_sampling="client"), ("server",))
+        raise SystemExit("unsupported benchmark frames must raise")
+    except ValueError as e: print("unsupported frames rejected:", str(e)[:60])
+    try:
+        resolve_inference(plain, bm("videomme", inference={"transport": "base64"}), fm)
+        raise SystemExit("transport is model-only")
+    except ValueError as e: print("benchmark transport rejected:", str(e)[:60])
+    print("frames precedence OK")
+
+    # 9. unknown config keys warn; known extras stay silent
+    cfg_path = tmp / "m.yaml"
+    cfg_path.write_text("models:\n- name: t\n  weight_path: /x\n  audio_mdoe: none\n"
+                        "benchmarks:\n- name: worldsense\n  num_frames: 8\n  num_frame: 4\n")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        load_config(cfg_path, cfg_path)
+    msgs = [str(w.message) for w in caught if issubclass(w.category, ConfigWarning)]
+    assert any("audio_mdoe" in m for m in msgs) and any("num_frame'" in m for m in msgs), msgs
+    assert not any("'num_frames'" in m.split("known")[0] for m in msgs), msgs
+    print("unknown-key warnings OK:", len(msgs))
 
 print("\nALL OVERRIDE TESTS PASSED")

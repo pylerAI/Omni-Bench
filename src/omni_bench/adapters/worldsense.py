@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, load_resumable_records, summarize_accuracy, write_json
 
@@ -76,6 +77,8 @@ AUDIO_CLASSES = ["Speech", "Event", "Music"]
 
 class WorldSenseAdapter(BenchmarkAdapter):
     name = "worldsense"
+    # Client-side 8 frames by default to match VLMEvalKit.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -98,10 +101,6 @@ class WorldSenseAdapter(BenchmarkAdapter):
         records_path = output_dir / "records.jsonl"
         records, done = load_resumable_records(records_path, worldsense_key)
         num_frames = int(benchmark.extra.get("num_frames", 8))
-        # "server" hands the raw video over and lets the model's own processor
-        # sample it, the way AV-SpeakerBench and OmniDCBench already work.
-        # Default stays "client" so the VLMEvalKit-matching protocol holds.
-        frame_sampling = str(benchmark.extra.get("frame_sampling", "client")).lower()
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
         pending = [row for row in rows if worldsense_key(row) not in done]
 
@@ -122,11 +121,10 @@ class WorldSenseAdapter(BenchmarkAdapter):
                 # Frame sampling + audio extraction is CPU/IO-bound; running rows
                 # concurrently overlaps it with GPU inference and uses all DP replicas.
                 media = prepare_worldsense_media(Path(video_path), cache_dir, num_frames)
-                server_side = frame_sampling == "server"
                 completion = client.complete(
                     prompt,
-                    image_urls=None if server_side else media["image_urls"],
-                    video_path=video_path if server_side else None,
+                    video_path=video_path,
+                    frames=lambda: ImageFrames(media["image_urls"]),
                     audio_path=media["audio_path"],
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,

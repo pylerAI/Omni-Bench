@@ -25,7 +25,7 @@ sys.modules["openai"] = openai_stub
 from omni_bench import video_transport as vt
 from omni_bench.asr.schema import TranscriptionSegment
 from omni_bench.asr.strategies import SttStrategy, register_strategy
-from omni_bench.asr_client import build_chat_client
+from omni_bench.client import build_chat_client
 from omni_bench.config import ModelConfig
 from omni_bench.io import append_jsonl, load_resumable_records, read_jsonl_records
 
@@ -113,6 +113,28 @@ with tempfile.TemporaryDirectory() as tmp:
     sent_bytes = base64.b64decode(video_part(sent[-1]).split(",", 1)[1])
     assert sent_bytes == outs[0].read_bytes() and sent_bytes != mp4.read_bytes()
     print("ASR uses original path; request carries transcode OK")
+
+    # --- inference: block == legacy flat keys ---
+    sent.clear()
+    legacy = build_chat_client(model(audio_mode="none", video_transport="base64", transcode=big,
+                                     strip_mm_kwargs=True))
+    new = build_chat_client(model(inference={"audio": "none", "transport": "base64",
+                                             "strip_mm_kwargs": True}, transcode=big))
+    assert legacy.pipeline.settings == new.pipeline.settings, (legacy.pipeline.settings, new.pipeline.settings)
+    legacy.complete("Q", video_path=webm, extra_body=flags)
+    new.complete("Q", video_path=webm, extra_body=flags)
+    assert sent[-1] == sent[-2]
+    try:
+        build_chat_client(model(inference={"transport": "file"}, video_transport="base64"))
+        raise SystemExit("conflict must raise")
+    except ValueError as exc:
+        print("legacy/new conflict rejected:", str(exc)[:70])
+    try:
+        build_chat_client(model(inference={"transprot": "file"}))
+        raise SystemExit("typo must raise")
+    except ValueError as exc:
+        print("inference typo rejected:", str(exc)[:70])
+    print("inference block == legacy keys OK")
 
     # --- resume: error records are retried, moved aside ---
     rec = tmp / "records.jsonl"

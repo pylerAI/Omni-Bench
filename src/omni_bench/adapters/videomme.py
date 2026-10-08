@@ -17,12 +17,15 @@ from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
 from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
     name = "videomme"
+    # Client-side frames as images by default, like VLMEvalKit's Video-MME_64frame.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -54,8 +57,6 @@ class VideoMMEAdapter(BenchmarkAdapter):
         # and passed alongside the frames — official Video-MME lists audio as an
         # input, and the frames-only setting was a context-window workaround.
         use_audio = bool(benchmark.extra.get("use_audio", False))
-        # "server": send the raw video and let the model processor sample it.
-        frame_sampling = str(benchmark.extra.get("frame_sampling", "client")).lower()
         audio_cache_dir = Path(
             benchmark.extra.get(
                 "audio_cache_dir", (benchmark.data_path or video_dir) and Path(video_dir).parent / "preprocess_cache"
@@ -71,8 +72,8 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 item["question_ref"]["response"] = existing_response[qid]
         pending = [item for item in flat if str(item["question_id"]) not in done]
 
-        # Frames are sampled client-side (the server ignores per-request video
-        # sampling kwargs) and sent as images. Requests run concurrently so the
+        # With frames=client, frames are sampled here (the server ignores
+        # per-request video sampling kwargs) and sent as images. Requests run concurrently so the
         # server stays busy instead of idling between serial calls; frames are
         # cached per video (bounded LRU) so each clip is decoded once even though
         # it backs several questions.
@@ -159,11 +160,10 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "video_path": item["video_path"],
             }
             try:
-                server_side = frame_sampling == "server"
                 completion = client.complete(
                     self._prompt(item, subtitles=subtitles_for(item)),
-                    image_urls=None if server_side else frames_for(item["video_path"]),
-                    video_path=item["video_path"] if server_side else None,
+                    video_path=item["video_path"],
+                    frames=lambda: ImageFrames(frames_for(item["video_path"])),
                     audio_path=audio_for(item["video_path"]),
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
@@ -205,7 +205,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 "official_results_file": str(output_dir / "official_results.json"),
                 "use_audio": use_audio,
                 "use_subtitles": use_subtitles,
-                "frame_sampling": frame_sampling,
+                "frame_sampling": client.frames_mode,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",
