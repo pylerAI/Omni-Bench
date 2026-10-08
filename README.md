@@ -1,96 +1,35 @@
 # Omni-Bench
 
-**Omni-Bench는 omni-modal model 평가에 집중한 all-in-one evaluation pipeline입니다.**
+**Omni-Bench is an all-in-one evaluation pipeline focused on omni-modal models.**
 
-Omni-Bench는 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit)과 유사하게 여러 benchmark를 하나의 runner에서 실행하고 결과를 통일된 위치에 저장하는 것을 목표로 합니다. 다만 범용 VLM evaluation toolkit이 아니라, **audio-video-text를 함께 처리하는 omni model과 omni benchmark 평가에 집중**합니다. 불필요한 범용 구현은 줄이고, vLLM serving 기반의 실험 반복과 benchmark별 official protocol 추적을 쉽게 하는 데 초점을 둡니다.
+Like [VLMEvalKit](https://github.com/open-compass/VLMEvalKit), Omni-Bench aims to run many benchmarks from a single runner and store their results in one unified location. It is not a general-purpose VLM evaluation toolkit, though: it **focuses on omni models and omni benchmarks that process audio, video, and text together**. It keeps general-purpose machinery to a minimum and instead optimizes for fast experiment iteration on top of vLLM serving and for faithfully tracking each benchmark's official protocol.
 
-[Qwen3.8-27B + Whisper](#qwen38-27b--whisper-recommend-config) · [Nemotron 3.5 Super VL](#nemotron-35-super-vl-원격-엔드포인트) · [평가 계획](docs/plan.md) · [환경 설정](#환경-설정) · [Serving](#serving) · [평가 실행](#평가-실행) · [결과](#결과)
+[Evaluation plan](docs/plan.md) · [Setup](#setup) · [Serving](#serving) · [Running evaluations](#running-evaluations) · [Results](#results)
 
-## Qwen3.8-27B + Whisper (recommend config)
+## Goals
 
-`frame_sampling: server`(프레임 추출을 모델 프로세서에 위임) + Qwen 권장 샘플링으로 측정한 구성입니다. config는 `configs/recommend/`.
+The project aims to provide:
 
-```bash
-# thinking
-uv run omni-bench run \
-  --config configs/recommend/qwen3_8_27b_whisper_thinking.yaml \
-  --benchmark-config configs/recommend/bench_thinking.yaml \
-  --benchmark worldsense
+1. A common execution interface for evaluating omni models
+2. Reproducible benchmark runs against a vLLM-compatible endpoint
+3. Faithful preservation of each benchmark's official prompt, parser, and result format
+4. A clean split between model configs and benchmark configs
+5. Results organized as `records.jsonl`, `summary.json`, and `overall_report.md`
 
-# non-thinking
-uv run omni-bench run \
-  --config configs/recommend/qwen3_8_27b_whisper_nothink.yaml \
-  --benchmark-config configs/recommend/bench_nothink.yaml \
-  --benchmark worldsense
+## Supported Models and Benchmarks
 
-# Video-MME 는 ASR 을 주입하지 않아 별도 config
-uv run omni-bench run \
-  --config configs/recommend/qwen3_8_27b_videomme_thinking.yaml \
-  --benchmark-config configs/recommend/bench_videomme_thinking.yaml \
-  --benchmark videomme
-```
-
-### thinking 런의 후처리
-
-추론이 `max_tokens`를 다 쓰면 `</think>` 뒤의 최종 답이 없는 채로 기록됩니다. 그 레코드를 지우면 어댑터가 **지워진 건만** 다시 돌립니다.
-
-```bash
-python scripts/strip_truncated.py all --dry-run   # 벤치별 잘린 건수만 확인
-python scripts/strip_truncated.py all             # 제거 (원본은 ~/trash 백업)
-# → 위 평가 명령을 그대로 다시 실행
-```
-
-채점은 `rescore_mcq.py`를 씁니다. official parser는 응답의 첫 `[ABCD]` 문자를 답으로 보므로, 추론 텍스트가 앞에 붙는 thinking 출력에서는 오답이 잡힙니다.
-
-```bash
-python scripts/rescore_mcq.py results/<model>/<benchmark>/records.jsonl options
-```
-
-측정 결과와 근거는 [docs/qwen3.8_plan.md](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md) 참고.
-
-## Nemotron 3.5 Super VL (원격 엔드포인트)
-
-> NVIDIA Early Access 모델입니다(NDA, GA 2026-10-15 예정). 결과를 사외로 공유하지 마십시오.
-
-Platform 팀이 띄운 **원격 vLLM**을 호출합니다. 우리가 서버를 띄우지 않으므로 `--serve`는 쓰지 않습니다. 입력 조건은 Qwen3.8 recommend config와 같습니다(`frame_sampling: server` · Whisper transcript 주입 · Video-MME는 ASR 미주입). 원격 서버 제약 때문에 아래 두 설정을 씁니다.
-
-- `video_transport: base64` — 서버가 로컬 경로(`file://`)를 읽지 못하므로 영상을 base64로 보냅니다. 200MB 초과 파일은 ≤720p로 재인코딩한 캐시를 씁니다.
-- `strip_mm_kwargs: true` — 서버가 거부하는 `mm_processor_kwargs`를 요청에서 뺍니다.
-
-```bash
-# <bf16|nvfp4> <nothink|think> [bench ...] — 생략하면 4종을 순차 실행
-bash scripts/run_nemotron_super_vl.sh bf16 nothink
-
-# ASR 비교 (Nemotron ASR 캐시, BF16 · no-think)
-bash scripts/run_nemotron_super_vl_asr.sh
-```
-
-think 응답은 서버가 추론(`message.reasoning`)과 답(`content`)을 나눠 주므로 official parser로 바로 채점합니다. 측정 결과와 설정·구현은 [docs/nemotron_super_vl.md](docs/nemotron_super_vl.md) 참고.
-
-## 목표
-
-이 프로젝트가 지향하는 것은 다음과 같습니다.
-
-1. Omni model 평가를 위한 공통 실행 인터페이스 제공
-2. vLLM-compatible endpoint 기반의 반복 가능한 benchmark 실행
-3. benchmark별 official prompt, parser, result format을 최대한 유지
-4. 모델별 config와 benchmark별 config 분리
-5. 결과를 `records.jsonl`, `summary.json`, `overall_report.md` 형태로 정리
-
-## 지원 모델과 Benchmark
-
-초기 평가 대상 모델:
+Initial evaluation targets:
 
 | Model | Config |
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
-| Qwen3.8-27B + Whisper ([평가](docs/qwen3.8_plan.md) · [구현](docs/qwen3_8_whisper.md)) | `configs/recommend/*.yaml` |
-| Nemotron 3.5 Super VL + Whisper ([평가·구현](docs/nemotron_super_vl.md)) | `configs/models/nemotron_3_5_super_vl_{bf16,nvfp4}.yaml` · 측정 `configs/nemotron_super_vl/*.yaml` |
+| Qwen3.8-27B + Whisper ([plan](docs/qwen3.8_plan.md) · [implementation](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` |
+| Nemotron 3.5 Super VL + Whisper ([docs](docs/nemotron_super_vl.md)) | `configs/models/nemotron_3_5_super_vl_{bf16,nvfp4}.yaml` |
 
-지원 benchmark:
+Supported benchmarks:
 
-| Benchmark | 문서 | Adapter |
+| Benchmark | Docs | Adapter |
 | --- | --- | --- |
 | AV-SpeakerBench | [docs/av_speakerbench.md](docs/av_speakerbench.md) | `av_speakerbench` |
 | WorldSense | [docs/worldsense.md](docs/worldsense.md) | `worldsense` |
@@ -98,86 +37,66 @@ think 응답은 서버가 추론(`message.reasoning`)과 답(`content`)을 나�
 | OmniVideoBench | [docs/omnivideobench.md](docs/omnivideobench.md) | `omnivideobench` |
 | OmniDCBench | [docs/omnidcbench.md](docs/omnidcbench.md) | `omnidcbench` |
 
-## Audio modality
+## Inference Strategies
 
-Audio encoder가 없는 모델은 model config의 `audio_mode`로 audio 처리를 바꿉니다. adapter는 수정하지 않습니다.
+Per-model input handling is selected in the model config's `inference:` block; adapters do not branch on it.
 
-| `audio_mode` | 동작 |
-| --- | --- |
-| `native` (기본) | 모델에 audio를 그대로 전달 — omni 모델 |
-| `none` | audio를 제거 — vision-only baseline |
-| `asr_text` | Whisper로 전사해 프롬프트에 주입 — cascade |
+| Axis | Options | Default | Meaning |
+| --- | --- | --- | --- |
+| `audio` | `native` · `none` · `asr_text` | `native` | Send audio as is · drop it · inject an ASR transcript (engine from `asr.strategy.name`). A benchmark config may override it. |
+| `frames` | `client` · `server` | per benchmark | Client-sampled frames · original video sampled by the model server. Benchmark config > model config > benchmark default. |
+| `transport` | `file` · `base64` | `file` | `file://` URL · base64 data URL (large files via the `transcode:` cache). |
 
-`asr_text`를 쓰기 전에 선행 전사를 돌려두면 평가가 Whisper에 블로킹되지 않습니다.
+For `asr_text`, pre-fill the Whisper cache with `uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml`.
 
-```bash
-uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml
-```
-
-ASR 전략은 `asr.strategy.name`으로 고릅니다. `faster_whisper`(Whisper) 외에, 다른 곳에서 만든 전사 캐시만 읽는 `nemo_streaming`(nvidia/nemotron-3.5-asr-streaming-0.6b)이 있습니다.
-
-자세한 내용은 [docs/qwen3_8_whisper.md](docs/qwen3_8_whisper.md)를 참고하세요.
-
-## 프로젝트 구조
+## Project Layout
 
 ```text
 configs/
   benchmarks/default.yaml
   models/qwen3_omni.yaml
   models/nemotron_3_nano_omni.yaml
-  models/nemotron_3_5_super_vl_{bf16,nvfp4}.yaml
-  recommend/                      Qwen3.8-27B recommend config (thinking / non-think)
-  nemotron_super_vl/              Nemotron 3.5 Super VL 측정 config (no-think / think / Nemotron ASR)
-  asr/whisper_large_v3.yaml
 docs/
 scripts/
   serve_qwen3_omni.sh
-  serve_qwen3_8_27b.sh
   serve_nemotron_3_nano_omni.sh
-  prepare_asr.py                  선행 ASR 전사 (GPU 분산 · 재개 가능)
-  pretranscode_videos.py          base64 전송용 대용량 영상 재인코딩 캐시 사전 생성
-  run_nemotron_super_vl.sh        Super VL 벤치 4종 순차 실행
-  run_nemotron_super_vl_asr.sh    Super VL Nemotron ASR 비교 실행
-  strip_truncated.py              잘린 thinking 레코드 제거
-  rescore_mcq.py                  저장된 응답으로 MCQ 재채점
   extract_worldsense_videos.sh
   extract_omnidcbench_videos.sh
 src/omni_bench/
   adapters/
   cli.py
-  asr/                            ASR 전략 (faster_whisper · vllm_asr · nemo_streaming) · 캐시
   client.py
+  inference/      audio / frames / transport strategy registries
   config.py
   io.py
-  video_transport.py              file:// / base64 전송 · 재인코딩 캐시
 submodules/
 ```
 
-## 환경 설정
+## Setup
 
 ```bash
 uv sync
 git submodule update --init --recursive
 ```
 
-`vllm[audio]`는 프로젝트 기본 dependency에 포함되어 있습니다.
+`vllm[audio]` is already included in the project's default dependencies.
 
-`flash-attn`은 CUDA, PyTorch, Python, platform 조합에 맞는 wheel을 환경별로 설치해야 합니다. 현재 Linux x86_64, Python 3.12, torch 2.11.0+cu130 환경에서는 아래 wheel을 사용할 수 있습니다.
+`flash-attn` must be installed per environment with a wheel matching your CUDA, PyTorch, Python, and platform combination. On the current environment (Linux x86_64, Python 3.12, torch 2.11.0+cu130) the following wheel works:
 
 ```bash
 uv pip install "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.4/flash_attn-2.8.3+cu130torch2.11-cp312-cp312-linux_x86_64.whl"
 ```
 
-## 데이터 준비
+## Data Preparation
 
-일부 dataset은 archive 형태로 배포되므로 평가 전에 압축 해제가 필요합니다.
+Some datasets ship as archives and must be extracted before evaluation.
 
 ```bash
 bash scripts/extract_worldsense_videos.sh
 bash scripts/extract_omnidcbench_videos.sh
 ```
 
-기본 local dataset 경로는 다음과 같습니다.
+Default local dataset paths:
 
 | Benchmark | Local path |
 | --- | --- |
@@ -189,13 +108,13 @@ bash scripts/extract_omnidcbench_videos.sh
 
 ## QuickStart
 
-1. vLLM 서버를 실행합니다.
+1. Start the vLLM server.
 
 ```bash
 bash scripts/serve_qwen3_omni.sh
 ```
 
-2. 원하는 benchmark를 실행합니다.
+2. Run the benchmark you want.
 
 ```bash
 uv run omni-bench run \
@@ -203,7 +122,7 @@ uv run omni-bench run \
   --benchmark av_speakerbench
 ```
 
-3. 결과를 확인합니다.
+3. Check the results.
 
 ```text
 results/qwen3-omni/av_speakerbench/
@@ -211,29 +130,29 @@ results/qwen3-omni/av_speakerbench/
 
 ## Serving
 
-vLLM은 별도 터미널에서 먼저 실행합니다.
+vLLM is started first, in a separate terminal.
 
 ```bash
 bash scripts/serve_qwen3_omni.sh
 ```
 
-또는:
+Or:
 
 ```bash
 bash scripts/serve_nemotron_3_nano_omni.sh
 ```
 
-기본 serving 설정:
+Default serving settings:
 
 - Tensor parallel size: `1`
-- Data parallel size: 사용 가능한 GPU 수
+- Data parallel size: number of visible GPUs
 - GPU memory utilization: `0.9`
 - Allowed local media path: `/gpfs/public/datasets`
-- Max audio decode duration: `3600`초
+- Max audio decode duration: `3600` seconds
 
-## 평가 실행
+## Running Evaluations
 
-단일 benchmark 실행:
+Run a single benchmark:
 
 ```bash
 uv run omni-bench run \
@@ -241,14 +160,14 @@ uv run omni-bench run \
   --benchmark av_speakerbench
 ```
 
-default benchmark config에 활성화된 전체 benchmark 실행:
+Run every benchmark enabled in the default benchmark config:
 
 ```bash
 uv run omni-bench run \
   --config configs/models/qwen3_omni.yaml
 ```
 
-별도 benchmark config 사용:
+Use a different benchmark config:
 
 ```bash
 uv run omni-bench run \
@@ -256,55 +175,43 @@ uv run omni-bench run \
   --benchmark-config configs/benchmarks/default.yaml
 ```
 
-일부만 빠르게 돌려 보기(스모크)와 저장 위치 지정:
-
-```bash
-uv run omni-bench run \
-  --config configs/models/qwen3_omni.yaml \
-  --benchmark worldsense \
-  --limit 20 --limit-mode spread \
-  --result-dir /tmp/smoke
-```
-
-`--limit-mode spread`는 앞에서 N개가 아니라 전체에서 고르게 N개를 뽑습니다. 실행할 때마다 설정 스냅샷 `config_used.json`(git 커밋 포함)이 결과 폴더에 저장됩니다. 같은 명령을 다시 실행하면 끝난 문항은 건너뛰고 에러 행만 다시 돌립니다.
-
-사용 가능한 adapter 목록 확인:
+List the available adapters:
 
 ```bash
 uv run omni-bench list-benchmarks
 ```
 
-## 결과
+## Results
 
-프로젝트 최상위의 [`report.html`](report.html)은 전체 benchmark 결과를 chart/table로 정리한 리포트입니다. **2026-07-08 기준으로 측정된 결과**입니다 (Qwen3-Omni-30B-A3B-Instruct, Nemotron-3-Nano-Omni-30B-A3B-Reasoning FP8/BF16/NVFP4). `omni-bench run`이 매 실행마다 `results/report.html`을 자동 생성하며, 최상위 `report.html`은 그 시점의 스냅샷입니다.
+[`report.html`](report.html) at the repository root is a report that organizes all benchmark results into charts and tables. It reflects **results measured as of 2026-07-08** (Qwen3-Omni-30B-A3B-Instruct, Nemotron-3-Nano-Omni-30B-A3B-Reasoning FP8/BF16/NVFP4). Every `omni-bench run` regenerates `results/report.html`; the top-level `report.html` is a snapshot of it at that point in time.
 
-결과는 아래 경로에 저장됩니다.
+Results are stored under:
 
 ```text
 results/<model-name>/<benchmark-name>/
 ```
 
-기본 출력 파일:
+Default output files:
 
 - `records.json`
 - `records.jsonl`
 - `summary.json`
 
-일부 adapter는 official evaluator에 넣을 수 있는 별도 파일도 생성합니다. 예를 들어 Video-MME는 `official_results.json`, OmniDCBench는 `predictions.jsonl`을 저장합니다.
+Some adapters also produce a separate file that can be fed into the official evaluator. For example, Video-MME writes `official_results.json` and OmniDCBench writes `predictions.jsonl`.
 
-전체 benchmark 결과는 아래 파일로 취합됩니다.
+Results across all benchmarks are aggregated into:
 
 - `results/run_summary.json`
 - `results/overall_report.json`
 - `results/overall_report.md`
 
-## 개발 가이드
+## Development Guide
 
-새 benchmark를 추가할 때는 다음 순서를 따릅니다.
+To add a new benchmark, follow these steps:
 
-1. `src/omni_bench/adapters/`에 adapter 구현
-2. `src/omni_bench/adapters/__init__.py`에 adapter 등록
-3. `configs/benchmarks/default.yaml` 또는 별도 benchmark config에 항목 추가
-4. `docs/<benchmark_name>.md`에 protocol, metric, output table 정리
+1. Implement the adapter under `src/omni_bench/adapters/`
+2. Register the adapter in `src/omni_bench/adapters/__init__.py`
+3. Add an entry to `configs/benchmarks/default.yaml` or to a separate benchmark config
+4. Document the protocol, metrics, and output table in `docs/<benchmark_name>.md`
 
-새 모델을 추가할 때는 `configs/models/` 아래 model config를 추가하고, 필요하면 `scripts/serve_<model>.sh`를 작성합니다.
+To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`.
