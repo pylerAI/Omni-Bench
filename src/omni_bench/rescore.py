@@ -15,7 +15,14 @@ from typing import Any
 import yaml
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
-from omni_bench.config import DEFAULT_BENCHMARK_CONFIG, BenchmarkConfig, ModelConfig, _load_benchmark
+from omni_bench.config import (
+    DEFAULT_BENCHMARK_CONFIG,
+    BenchmarkConfig,
+    ModelConfig,
+    _load_benchmark,
+    _load_model,
+    resolve_benchmark_config,
+)
 from omni_bench.inference import REASONING_STRATEGIES, resolve_inference
 from omni_bench.inference.reasoning import resplit_record
 from omni_bench.inference.settings import DEFAULT_REASONING, MODEL_AXES, read_inference_block
@@ -33,11 +40,15 @@ def _benchmark_from(config_used: dict[str, Any] | None, name: str, benchmark_con
     raise ValueError(f"No config_used.json in the run and no '{name}' entry in {path}; pass --benchmark-config")
 
 
-def _model_from(config_used: dict[str, Any] | None, name: str) -> ModelConfig:
+def _model_from(config_used: dict[str, Any] | None, name: str, model_config: Path | None) -> ModelConfig:
     if config_used and config_used.get("model"):
         raw = dict(config_used["model"])
         raw.pop("vllm", None)
         return ModelConfig(**raw)
+    if model_config:
+        models = (yaml.safe_load(Path(model_config).read_text()) or {}).get("models") or []
+        if models:
+            return _load_model(models[0])
     return ModelConfig(name=name, weight_path="")
 
 
@@ -47,12 +58,13 @@ def rescore_benchmark(
     *,
     reasoning: str | None,
     benchmark_config: Path | None,
+    model_config: Path | None = None,
 ) -> dict[str, Any]:
     config_used = read_json(src / "config_used.json") if (src / "config_used.json").exists() else None
     name = (config_used or {}).get("benchmarks", [{}])[0].get("name") or src.name
     adapter = get_adapter(name)
     benchmark = _benchmark_from(config_used, name, benchmark_config)
-    model = _model_from(config_used, src.parent.name)
+    model = _model_from(config_used, src.parent.name, model_config)
 
     recorded = (config_used or {}).get("inference") or {}
     strategy_name = (
@@ -94,7 +106,11 @@ def rescore_run(
     benchmarks: list[str] | None = None,
     reasoning: str | None = None,
     benchmark_config: str | Path | None = None,
+    model_config: str | Path | None = None,
 ) -> dict[str, dict[str, Any]]:
+    """``model_config`` (a model YAML) stands in for a missing config_used.json:
+    its inference settings and its ``benchmark_config:`` are used, the latter
+    unless ``benchmark_config`` is given."""
     run_dir = Path(run_dir).expanduser().resolve()
     out_root = Path(out_dir).expanduser().resolve() / run_dir.name
     if out_root == run_dir or out_root.is_relative_to(run_dir) or run_dir.is_relative_to(out_root):
@@ -111,7 +127,8 @@ def rescore_run(
             continue
         results[name] = rescore_benchmark(
             src, out_root / src.name, reasoning=reasoning,
-            benchmark_config=Path(benchmark_config) if benchmark_config else None,
+            benchmark_config=resolve_benchmark_config(model_config, benchmark_config),
+            model_config=Path(model_config) if model_config else None,
         )
     if not results:
         raise ValueError(f"No benchmark results found under {run_dir}")

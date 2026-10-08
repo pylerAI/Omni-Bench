@@ -29,7 +29,8 @@ def main() -> None:
     run_parser.add_argument(
         "--benchmark-config",
         default=None,
-        help="Path to benchmark YAML config. Defaults to configs/benchmarks/default.yaml.",
+        help="Path to benchmark YAML config. Overrides the model config's `benchmark_config:`; "
+             "defaults to configs/benchmarks/default.yaml.",
     )
     run_parser.add_argument("--model", action="append", help="Model name to run. Repeatable.")
     run_parser.add_argument("--benchmark", action="append", help="Benchmark name to run. Repeatable.")
@@ -54,8 +55,12 @@ def main() -> None:
     rescore_parser.add_argument("--benchmark", action="append", help="Benchmark name to rescore. Repeatable.")
     rescore_parser.add_argument("--reasoning", default=None,
                                 help="Reasoning strategy override (default: the run's config_used.json, else server).")
+    rescore_parser.add_argument("--config", default=None,
+                                help="Model YAML standing in for a missing config_used.json: its inference "
+                                     "settings (e.g. reasoning) and `benchmark_config:` are used.")
     rescore_parser.add_argument("--benchmark-config", default=None,
-                                help="Benchmark YAML for runs without config_used.json (default: configs/benchmarks/default.yaml).")
+                                help="Benchmark YAML for runs without config_used.json. Overrides --config's "
+                                     "`benchmark_config:`; default configs/benchmarks/default.yaml.")
 
     subparsers.add_parser("list-benchmarks", help="List supported benchmark adapters.")
 
@@ -68,7 +73,8 @@ def main() -> None:
         from omni_bench.rescore import rescore_run
 
         results = rescore_run(args.run_dir, args.out_dir, benchmarks=args.benchmark,
-                              reasoning=args.reasoning, benchmark_config=args.benchmark_config)
+                              reasoning=args.reasoning, benchmark_config=args.benchmark_config,
+                              model_config=args.config)
         for name, summary in results.items():
             print(f"{name}: accuracy={summary.get('accuracy')} total={summary.get('total')}")
     elif args.command == "list-benchmarks":
@@ -114,7 +120,8 @@ def run(args: argparse.Namespace) -> None:
                 )
                 write_config_snapshot(output_dir, args=args, model=model, benchmarks=[benchmark],
                                       result_dir=cfg.result_dir, timeout_s=cfg.request_timeout_s,
-                                      inference=dataclasses.asdict(client.pipeline.settings))
+                                      inference=dataclasses.asdict(client.pipeline.settings),
+                                      benchmark_config_path=cfg.benchmark_config_path)
                 started = time.perf_counter()
                 summary = adapter.run(
                     benchmark=benchmark,
@@ -170,7 +177,8 @@ def _git_state() -> dict[str, Any]:
 
 def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: ModelConfig,
                           benchmarks: list[BenchmarkConfig], result_dir: Path,
-                          timeout_s: float, inference: dict[str, Any] | None = None) -> None:
+                          timeout_s: float, inference: dict[str, Any] | None = None,
+                          benchmark_config_path: Path | None = None) -> None:
     """``config_used.json`` in the benchmark dir and the run (model) dir.
 
     The run-level copy is overwritten by each benchmark invocation, so the
@@ -180,7 +188,7 @@ def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: 
         "written_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "argv": sys.argv,
         "config_path": str(Path(args.config).resolve()),
-        "benchmark_config_path": str(Path(args.benchmark_config).resolve()) if args.benchmark_config else None,
+        "benchmark_config_path": str(benchmark_config_path) if benchmark_config_path else None,
         "result_dir": str(result_dir),
         "request_timeout_s": timeout_s,
         "git": _git_state(),

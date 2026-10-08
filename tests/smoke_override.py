@@ -171,4 +171,30 @@ with tempfile.TemporaryDirectory() as tmp:
                    for m in msgs), msgs
     print("unknown-key warnings OK:", len(msgs))
 
+    # 10. benchmark config: CLI > model config `benchmark_config:` (relative to the file) > default
+    import os
+    from omni_bench.config import DEFAULT_BENCHMARK_CONFIG, resolve_benchmark_config
+    sub = tmp / "cfgs" / "nested"; sub.mkdir(parents=True)
+    (sub / "pair.yaml").write_text("benchmarks:\n- name: worldsense\n  num_frames: 3\n")
+    (tmp / "cli.yaml").write_text("benchmarks:\n- name: videomme\n")
+    keyed = sub / "model.yaml"
+    keyed.write_text("benchmark_config: pair.yaml\nmodels:\n- name: k\n  weight_path: /x\n")
+    plain_cfg = tmp / "plain.yaml"
+    plain_cfg.write_text("models:\n- name: p\n  weight_path: /x\n")
+    cwd = os.getcwd(); os.chdir("/")                 # relative path must not depend on the CWD
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")           # the key is known: no ConfigWarning
+            got = load_config(keyed)
+        assert got.benchmark_config_path == (sub / "pair.yaml").resolve(), got.benchmark_config_path
+        assert [b.name for b in got.benchmarks] == ["worldsense"] and got.benchmarks[0].extra["num_frames"] == 3
+        cli = load_config(keyed, tmp / "cli.yaml")    # CLI wins over the key
+        assert [b.name for b in cli.benchmarks] == ["videomme"]
+        assert load_config(plain_cfg).benchmark_config_path == DEFAULT_BENCHMARK_CONFIG
+        assert resolve_benchmark_config(None, None) == DEFAULT_BENCHMARK_CONFIG
+        assert resolve_benchmark_config(keyed, None) == (sub / "pair.yaml").resolve()
+    finally:
+        os.chdir(cwd)
+    print("benchmark_config precedence OK")
+
 print("\nALL OVERRIDE TESTS PASSED")

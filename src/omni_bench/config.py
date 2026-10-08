@@ -67,13 +67,16 @@ class RunConfig:
     models: list[ModelConfig]
     benchmarks: list[BenchmarkConfig]
     request_timeout_s: float = 600.0
+    #: Benchmark config actually loaded (after CLI > model key > default).
+    benchmark_config_path: Path | None = None
 
 
 class ConfigWarning(UserWarning):
     """A config key that no code reads (likely a typo)."""
 
 
-TOP_LEVEL_KEYS = frozenset({"global", "models", "benchmarks"})
+#: ``benchmark_config`` is read from the model config file only.
+TOP_LEVEL_KEYS = frozenset({"global", "models", "benchmarks", "benchmark_config"})
 GLOBAL_KEYS = frozenset({"result_dir", "request_timeout_s"})
 
 #: Model keys outside the ModelConfig fields that code actually reads.
@@ -150,13 +153,28 @@ def _resolve_path(path: str | Path, *, base_dir: Path) -> Path:
     return resolved
 
 
+def resolve_benchmark_config(
+    config_path: str | Path | None, benchmark_path: str | Path | None = None
+) -> Path:
+    """CLI ``--benchmark-config`` > the model config's ``benchmark_config:`` key
+    (relative to that file) > ``configs/benchmarks/default.yaml``."""
+    if benchmark_path:
+        return Path(benchmark_path).expanduser().resolve()
+    if config_path:
+        _, raw = _read_yaml(config_path)
+        named = raw.get("benchmark_config")
+        if named:
+            return _resolve_path(Path(str(named)).expanduser(), base_dir=Path(config_path).resolve().parent)
+    return DEFAULT_BENCHMARK_CONFIG
+
+
 def load_config(path: str | Path, benchmark_path: str | Path | None = None) -> RunConfig:
     config_path, raw = _read_yaml(path)
-    benchmark_config_path = Path(benchmark_path) if benchmark_path else DEFAULT_BENCHMARK_CONFIG
+    benchmark_config_path = resolve_benchmark_config(config_path, benchmark_path)
     benchmark_config_path, benchmark_raw = _read_yaml(benchmark_config_path)
 
-    for label, doc in ((str(config_path), raw), (str(benchmark_config_path), benchmark_raw)):
-        _warn_unknown("config file", label, doc, TOP_LEVEL_KEYS)
+    _warn_unknown("config file", str(config_path), raw, TOP_LEVEL_KEYS)
+    _warn_unknown("config file", str(benchmark_config_path), benchmark_raw, TOP_LEVEL_KEYS - {"benchmark_config"})
     global_cfg = {**(benchmark_raw.get("global", {}) or {}), **(raw.get("global", {}) or {})}
     _warn_unknown("global", "global", global_cfg, GLOBAL_KEYS)
     result_dir = Path(global_cfg.get("result_dir", "results"))
@@ -175,4 +193,5 @@ def load_config(path: str | Path, benchmark_path: str | Path | None = None) -> R
         models=models,
         benchmarks=benchmarks,
         request_timeout_s=float(global_cfg.get("request_timeout_s", 600.0)),
+        benchmark_config_path=benchmark_config_path,
     )
