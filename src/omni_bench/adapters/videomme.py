@@ -13,19 +13,19 @@ from typing import Any
 import cv2
 from tqdm import tqdm
 
-from omni_bench.adapters.base import BenchmarkAdapter
+from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
 from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
 from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
 from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
+from omni_bench.io import append_jsonl, load_resumable_records, read_json, summarize_accuracy, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
     name = "videomme"
-    # Client-side frames as images, like VLMEvalKit's Video-MME_64frame.
-    frame_modes = ("client",)
+    # Client-side frames as images by default, like VLMEvalKit's Video-MME_64frame.
+    frame_modes = ("client", "server")
 
     def run(
         self,
@@ -40,8 +40,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         official = deepcopy(load_videomme_annotation(benchmark.annotation_file))
         flat = self._flatten(official, video_dir)
-        if benchmark.limit is not None:
-            flat = flat[: benchmark.limit]
+        flat = apply_limit(flat, benchmark.limit, benchmark.extra.get("limit_mode"))
 
         num_frames = int(benchmark.extra.get("max_frames", 64))
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))
@@ -65,17 +64,11 @@ class VideoMMEAdapter(BenchmarkAdapter):
         ).expanduser()
 
         records_path = output_dir / "records.jsonl"
-        records = read_jsonl_records(records_path)
-        done = {str(record.get("question_id")) for record in records}
-        existing_response = {str(record.get("question_id")): record.get("response") for record in records}
-        for item in flat:
-            qid = str(item["question_id"])
-            if qid in existing_response:
-                item["question_ref"]["response"] = existing_response[qid]
+        records, done = load_resumable_records(records_path, lambda r: str(r.get("question_id")))
         pending = [item for item in flat if str(item["question_id"]) not in done]
 
-        # Frames are sampled client-side (the server ignores per-request video
-        # sampling kwargs) and sent as images. Requests run concurrently so the
+        # With frames=client, frames are sampled here (the server ignores
+        # per-request video sampling kwargs) and sent as images. Requests run concurrently so the
         # server stays busy instead of idling between serial calls; frames are
         # cached per video (bounded LRU) so each clip is decoded once even though
         # it backs several questions.
@@ -177,26 +170,16 @@ class VideoMMEAdapter(BenchmarkAdapter):
             return {
                 **base,
                 "response": completion.text,
-                "latency_s": completion.latency_s,
-                "prompt_tokens": completion.prompt_tokens,
-                "completion_tokens": completion.completion_tokens,
-                "total_tokens": completion.total_tokens,
+                **completion.meta(),
             }
 
-        response_by_qid: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(process_item, item) for item in pending]
             for future in tqdm(as_completed(futures), total=len(futures), desc=f"{model.name}/Video-MME"):
                 record = future.result()
-                response_by_qid[str(record["question_id"])] = record.get("response", "")
                 with write_lock:
                     records.append(record)
                     append_jsonl(records_path, record)
-
-        for item in flat:
-            qid = str(item["question_id"])
-            if qid in response_by_qid:
-                item["question_ref"]["response"] = response_by_qid[qid]
 
         return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
                              frames_mode=client.frames_mode, official=official)
@@ -207,31 +190,31 @@ class VideoMMEAdapter(BenchmarkAdapter):
 
     def finalize(self, records, *, benchmark, output_dir, frames_mode, official=None) -> dict[str, Any]:
         """Parses every record (error rows included, as the official file needs a
-        response per question). ``official`` is the template ``run`` already
-        filled; without it (records only) the template is rebuilt from the
-        annotation and filled from the records."""
+        response per question) and fills the official template's responses."""
         if official is None:
             official = deepcopy(load_videomme_annotation(benchmark.annotation_file))
-            question_by_qid = {
-                str(question.get("question_id")): question
-                for video in official
-                for question in video.get("questions", [])
-            }
-            for record in records:
-                question = question_by_qid.get(str(record.get("question_id")))
-                if question is not None:
-                    question["response"] = record.get("response")
+        question_by_qid = {
+            str(question.get("question_id")): question
+            for video in official
+            for question in video.get("questions", [])
+        }
         for record in records:
+            question = question_by_qid.get(str(record.get("question_id")))
+            if question is not None:
+                question["response"] = record.get("response")
             record.update(self.parse_record(record))
 
+        use_audio = bool(benchmark.extra.get("use_audio", False))
+        use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         summary = summarize_accuracy(records, ("duration", "task_type", "domain"))
         summary.update(
             {
                 "official_results_file": str(output_dir / "official_results.json"),
-                "use_audio": bool(benchmark.extra.get("use_audio", False)),
-                "use_subtitles": bool(benchmark.extra.get("use_subtitles", False)),
+                "use_audio": use_audio,
+                "use_subtitles": use_subtitles,
+                "frame_sampling": frames_mode,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
                 "Throughput is measured separately with `vllm bench throughput`.",

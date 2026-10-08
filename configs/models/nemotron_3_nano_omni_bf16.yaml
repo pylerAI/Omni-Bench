@@ -4,6 +4,7 @@ global:
 
 models:
   - name: nemotron-3-nano-omni-bf16
+    display_name: "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"   # shown in report.html
     served_model_name: Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
     weight_path: /gpfs/public/artifacts/models/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16/
     base_url: http://127.0.0.1:8000/v1

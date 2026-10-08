@@ -8,7 +8,7 @@ from typing import Any, Callable
 from openai import OpenAI
 
 from omni_bench.config import BenchmarkConfig, ModelConfig
-from omni_bench.inference import ClientFrames, InferencePipeline, MediaRequest
+from omni_bench.inference import AsrCommandPool, ClientFrames, InferencePipeline, MediaRequest
 
 
 @dataclass(slots=True)
@@ -18,6 +18,35 @@ class ChatCompletionResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    reasoning: str | None = None
+    finish_reason: str | None = None
+    #: Length of the ASR transcript block prepended to the prompt (asr_text mode).
+    asr_chars: int | None = None
+    #: Server ``content`` before the reasoning strategy, only when it differs from ``text``.
+    response_raw: str | None = None
+
+    def meta(self) -> dict[str, Any]:
+        """Fields every adapter stores alongside its own record fields."""
+        return {
+            "latency_s": self.latency_s,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "finish_reason": self.finish_reason,
+            "reasoning": self.reasoning,
+            "asr_chars": self.asr_chars,
+            **({"response_raw": self.response_raw} if self.response_raw is not None else {}),
+        }
+
+
+def _reasoning_of(message: Any) -> str | None:
+    """vLLM returns reasoning outside ``content``; the field name varies by version."""
+    for name in ("reasoning", "reasoning_content"):
+        value = getattr(message, name, None)
+        if value:
+            return value
+    extra = getattr(message, "model_extra", None) or {}
+    return extra.get("reasoning") or extra.get("reasoning_content")
 
 
 class VllmChatClient:
@@ -82,15 +111,20 @@ class VllmChatClient:
             extra_body=built.extra_body,
         )
         latency_s = time.perf_counter() - started
-        content = response.choices[0].message.content or ""
-        text, _ = self.pipeline.reasoning.split(content, None)
+        choice = response.choices[0]
         usage = response.usage
+        content = choice.message.content or ""
+        text, reasoning = self.pipeline.reasoning.split(content, _reasoning_of(choice.message))
         return ChatCompletionResult(
             text=text,
             latency_s=latency_s,
             prompt_tokens=usage.prompt_tokens if usage else None,
             completion_tokens=usage.completion_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,
+            reasoning=reasoning,
+            finish_reason=getattr(choice, "finish_reason", None),
+            asr_chars=built.asr_chars,
+            response_raw=content if text != content else None,
         )
 
 
@@ -100,10 +134,11 @@ def build_chat_client(
     *,
     benchmark: BenchmarkConfig | None = None,
     frame_modes: tuple[str, ...] | None = None,
+    pool: AsrCommandPool | None = None,
 ) -> VllmChatClient:
     """Client whose pipeline is resolved for this (model, benchmark) pair.
 
     ``frame_modes`` is the adapter's supported frames modes, default first.
     """
-    pipeline = InferencePipeline.build(model, benchmark, frame_modes=frame_modes)
+    pipeline = InferencePipeline.build(model, benchmark, frame_modes=frame_modes, asr_pool=pool)
     return VllmChatClient(model, default_timeout_s=default_timeout_s, pipeline=pipeline)

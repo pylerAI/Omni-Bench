@@ -24,6 +24,8 @@ Initial evaluation targets:
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
+| Qwen3.8-27B + Whisper | `configs/models/qwen3_8_27b_*.yaml` |
+| Nemotron 3.5 Super VL + Whisper | `configs/models/nemotron_3_5_super_vl_*.yaml` |
 
 Supported benchmarks:
 
@@ -39,26 +41,35 @@ Supported benchmarks:
 
 ```text
 configs/
-  benchmarks/default.yaml
-  models/qwen3_omni.yaml
-  models/nemotron_3_nano_omni.yaml
-docs/
+  asr/                  ASR engine settings (whisper_large_v3.yaml, qwen3_asr.yaml)
+  benchmarks/           default.yaml + per-measurement benchmark configs
+  models/               one model config per measurement (inference:, display_name:, benchmark_config:)
+docs/                   benchmark docs, inference_strategies.md, asr.md
 scripts/
-  serve_qwen3_omni.sh
-  serve_nemotron_3_nano_omni.sh
+  serve_*.sh            vLLM serve scripts (qwen3_omni, nemotron_3_nano_omni, qwen3_8_27b, qwen3_asr)
+  prepare_asr.py        pre-fill the ASR transcript cache
+  pretranscode_videos.py  pre-build the base64 transcode cache
+  strip_truncated.py    drop records cut off at max_tokens so a re-run retries them
+  rescore_mcq.py        stricter MCQ letter extraction next to the official parser
+  build_report.py
   extract_worldsense_videos.sh
   extract_omnidcbench_videos.sh
 src/omni_bench/
-  adapters/
-  inference/      audio / frames / transport / reasoning strategy registries
-  cli.py
+  adapters/             one adapter per benchmark (run / parse_record / finalize)
+  asr/                  ASR engines, transcript cache, prompt formatting
+  inference/            audio / frames / transport / reasoning strategy registries
+  cli.py                run · rescore · serve · list-benchmarks
   client.py
   config.py
   io.py
-  subtitles.py    Video-MME SRT cues matched to sampled frames
-  asr/audio.py    ffmpeg audio helpers (duration, audio-stream check, WAV demux)
+  perf.py               throughput / latency block in summary.json
+  report.py
+  rescore.py            re-parse stored records without inference
+  serving.py
+  subtitles.py          Video-MME SRT cues matched to sampled frames
+  video_transport.py    base64 transport and transcode cache
 submodules/
-tests/            pytest suite (no GPU, server, or dataset needed)
+tests/                  pytest suite (no GPU, server, or dataset needed)
 .github/workflows/tests.yml
 ```
 
@@ -195,6 +206,19 @@ Results across all benchmarks are aggregated into:
 - `results/overall_report.json`
 - `results/overall_report.md`
 
+Each `summary.json` also carries a `perf` block, computed from the records after the run (`src/omni_bench/perf.py`):
+
+| Key | Meaning |
+| --- | --- |
+| `samples` · `errors` | Records in the run and rows that failed |
+| `wall_s` · `wall_min` | Wall-clock time of the benchmark (frame decoding and transcript lookup included) |
+| `samples_per_s` · `s_per_sample` | Throughput over that wall time |
+| `concurrency` | In-flight requests (`concurrency`, else `max_workers`) |
+| `latency_s` · `prompt_tokens` · `completion_tokens` | Per-request distributions: `n`, `mean`, `p50`, `p90`, `p99`, `max`, `sum`. Latency includes server queueing, so compare it only within one run |
+| `prompt_tokens_per_s` · `output_tokens_per_s` · `total_tokens_per_s` | Token throughput over the wall time |
+
+Every run also writes `config_used.json` to the benchmark directory and to the model directory (the latter is overwritten by each benchmark, so the benchmark-level copy is authoritative). It records `written_at`, `argv`, `config_path`, `benchmark_config_path` (resolved), `result_dir`, `request_timeout_s`, `git` (commit, branch, dirty), `inference` (the resolved audio / frames / transport / reasoning), and the full `model` and `benchmarks` settings. `omni-bench rescore` reads it to re-apply the same settings, and the HTML report takes model labels from its `model.display_name`.
+
 ## Development Guide
 
 To add a new benchmark, follow these steps:
@@ -205,10 +229,10 @@ To add a new benchmark, follow these steps:
    - `finalize(records, ...)` writes the summary and output files from finished records.
    - `frame_modes` lists the frame-sampling modes the protocol allows; the first is the default.
 
-   `parse_record` and `finalize` are abstract rather than helpers inside `run` so that stored records can be re-parsed and re-summarized through exactly the code a run uses, without inference. A follow-up `omni-bench rescore` command relies on this.
+   `parse_record` and `finalize` are abstract rather than helpers inside `run` so that stored records can be re-parsed and re-summarized through exactly the code a run uses, without inference. `omni-bench rescore` relies on this.
 2. Register the adapter in `src/omni_bench/adapters/__init__.py`
 3. Add an entry to `configs/benchmarks/default.yaml` or to a separate benchmark config
 4. Document the protocol, metrics, and output table in `docs/<benchmark_name>.md`
 5. Run the tests: `uv sync && uv run pytest`
 
-To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`.
+To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`. Set `display_name:` for the label in the HTML report. Per-model input handling (ASR transcript, frame sampling, video transport, reasoning) is set in the config's `inference:` block; see [docs/inference_strategies.md](docs/inference_strategies.md) and, for ASR transcripts, [docs/asr.md](docs/asr.md).

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ class ModelConfig:
     api_key: str = "EMPTY"
     vllm: VllmConfig = field(default_factory=VllmConfig)
     request_timeout_s: float | None = None
+    #: Label shown in report.html; the result dir name (``name``) when unset.
+    display_name: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -66,6 +69,50 @@ class RunConfig:
     models: list[ModelConfig]
     benchmarks: list[BenchmarkConfig]
     request_timeout_s: float = 600.0
+    #: Benchmark config actually loaded (after CLI > model key > default).
+    benchmark_config_path: Path | None = None
+
+
+class ConfigWarning(UserWarning):
+    """A config key that no code reads (likely a typo)."""
+
+
+#: ``benchmark_config`` is read from the model config file only.
+TOP_LEVEL_KEYS = frozenset({"global", "models", "benchmarks", "benchmark_config"})
+GLOBAL_KEYS = frozenset({"result_dir", "request_timeout_s"})
+
+#: Model keys outside the ModelConfig fields that code actually reads.
+MODEL_EXTRA_KEYS = frozenset({
+    "inference", "extra_body", "asr", "transcode",
+    # legacy spellings of inference.* (still honoured)
+    "audio_mode", "frame_sampling", "video_transport", "strip_mm_kwargs",
+})
+
+#: Benchmark keys outside the BenchmarkConfig fields, per adapter. "*" applies to all.
+BENCHMARK_EXTRA_KEYS: dict[str, frozenset[str]] = {
+    # max_workers: cli.py reads it (with concurrency) for every benchmark's perf summary.
+    "*": frozenset({"inference", "audio_mode", "frame_sampling", "asr", "concurrency", "limit_mode",
+                    "max_workers"}),
+    "av_speakerbench": frozenset({"dataset_name", "category", "sub_category", "task_id"}),
+    "omnidcbench": frozenset({"run_metrics", "metric_gt_file", "metric_evaluator", "max_workers",
+                              "enable_sodam", "metric_credentials"}),
+    "omnivideobench": frozenset({"max_frames", "num_frames", "fps", "max_workers", "preprocess_workers",
+                                 "preprocess_cache_dir", "top_p", "do_sample", "system_prompt"}),
+    "videomme": frozenset({"max_frames", "max_pixels", "use_subtitles", "subtitle_dir",
+                           "subtitle_max_chars", "use_audio", "audio_cache_dir"}),
+    "worldsense": frozenset({"num_frames", "preprocess_cache_dir"}),
+}
+
+
+def _warn_unknown(kind: str, name: str, extra: dict[str, Any], allowed: frozenset[str]) -> None:
+    unknown = sorted(set(extra) - allowed)
+    if unknown:
+        warnings.warn(
+            f"{kind} '{name}': unknown config key(s) {unknown} are ignored "
+            f"(misspelled? known extra keys: {sorted(allowed)})",
+            ConfigWarning,
+            stacklevel=3,
+        )
 
 
 def _known_keys(cls: type) -> set[str]:
@@ -82,12 +129,16 @@ def _load_model(raw: dict[str, Any]) -> ModelConfig:
     vllm_raw = data.pop("vllm", {}) or {}
     data["vllm"] = VllmConfig(**vllm_raw)
     data["extra"] = extra
+    _warn_unknown("model", str(data.get("name")), extra, MODEL_EXTRA_KEYS)
     return ModelConfig(**data)
 
 
 def _load_benchmark(raw: dict[str, Any]) -> BenchmarkConfig:
     data, extra = _split_known(raw, BenchmarkConfig)
     data["extra"] = extra
+    name = str(data.get("name"))
+    _warn_unknown("benchmark", name, extra,
+                  BENCHMARK_EXTRA_KEYS["*"] | BENCHMARK_EXTRA_KEYS.get(name, frozenset()))
     return BenchmarkConfig(**data)
 
 
@@ -104,12 +155,30 @@ def _resolve_path(path: str | Path, *, base_dir: Path) -> Path:
     return resolved
 
 
+def resolve_benchmark_config(
+    config_path: str | Path | None, benchmark_path: str | Path | None = None
+) -> Path:
+    """CLI ``--benchmark-config`` > the model config's ``benchmark_config:`` key
+    (relative to that file) > ``configs/benchmarks/default.yaml``."""
+    if benchmark_path:
+        return Path(benchmark_path).expanduser().resolve()
+    if config_path:
+        _, raw = _read_yaml(config_path)
+        named = raw.get("benchmark_config")
+        if named:
+            return _resolve_path(Path(str(named)).expanduser(), base_dir=Path(config_path).resolve().parent)
+    return DEFAULT_BENCHMARK_CONFIG
+
+
 def load_config(path: str | Path, benchmark_path: str | Path | None = None) -> RunConfig:
     config_path, raw = _read_yaml(path)
-    benchmark_config_path = Path(benchmark_path) if benchmark_path else DEFAULT_BENCHMARK_CONFIG
+    benchmark_config_path = resolve_benchmark_config(config_path, benchmark_path)
     benchmark_config_path, benchmark_raw = _read_yaml(benchmark_config_path)
 
+    _warn_unknown("config file", str(config_path), raw, TOP_LEVEL_KEYS)
+    _warn_unknown("config file", str(benchmark_config_path), benchmark_raw, TOP_LEVEL_KEYS - {"benchmark_config"})
     global_cfg = {**(benchmark_raw.get("global", {}) or {}), **(raw.get("global", {}) or {})}
+    _warn_unknown("global", "global", global_cfg, GLOBAL_KEYS)
     result_dir = Path(global_cfg.get("result_dir", "results"))
     result_dir = _resolve_path(result_dir, base_dir=config_path.parent)
 
@@ -126,4 +195,5 @@ def load_config(path: str | Path, benchmark_path: str | Path | None = None) -> R
         models=models,
         benchmarks=benchmarks,
         request_timeout_s=float(global_cfg.get("request_timeout_s", 600.0)),
+        benchmark_config_path=benchmark_config_path,
     )

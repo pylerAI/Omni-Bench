@@ -1,19 +1,22 @@
-"""Resolve the inference axes from model and benchmark config.
+"""Resolve the three inference axes from model and benchmark config.
 
-YAML (model entry; a benchmark entry may set ``audio`` / ``frames``)::
+Preferred YAML (model entry; a benchmark entry may set ``audio`` / ``frames``)::
 
     inference:
-      audio: native          # how the audio modality is sent
-      frames: client         # who samples video frames (limited per adapter)
-      transport: file        # how a local video reaches the server
-      reasoning: as_is       # how reasoning is separated from the answer
+      audio: asr_text        # native | none | asr_text
+      frames: server         # client | server
+      transport: base64      # file | base64
+      strip_mm_kwargs: true  # drop mm_processor_kwargs / media_io_kwargs from the body
+      reasoning: as_is       # as_is | split
 
-Every key is optional; omitting the block keeps the defaults below.
+The pre-``inference:`` flat keys are still read and mean the same thing:
+``audio_mode`` -> audio, ``frame_sampling`` -> frames, ``video_transport`` ->
+transport, top-level ``strip_mm_kwargs``.
 
 Precedence: benchmark > model > default. ``frames`` is additionally limited to
 what the adapter supports (``BenchmarkAdapter.frame_modes``; the first entry is
 its protocol default): a model-level choice the adapter cannot honour falls back
-to that default with a warning, an explicit benchmark-level one is an error.
+to that default, an explicit benchmark-level one is an error.
 """
 
 from __future__ import annotations
@@ -26,9 +29,15 @@ from typing import Any
 class InferenceWarning(UserWarning):
     """An inference setting was adjusted to what the benchmark adapter supports."""
 
-
-MODEL_AXES = ("audio", "frames", "transport", "reasoning")
-#: transport / reasoning describe the server, so only the model sets them.
+#: new key -> legacy flat key
+LEGACY_KEYS = {
+    "audio": "audio_mode",
+    "frames": "frame_sampling",
+    "transport": "video_transport",
+    "strip_mm_kwargs": "strip_mm_kwargs",
+}
+MODEL_AXES = ("audio", "frames", "transport", "strip_mm_kwargs", "reasoning")
+#: transport / strip_mm_kwargs / reasoning describe the server, so only the model sets them.
 BENCHMARK_AXES = ("audio", "frames")
 
 DEFAULT_AUDIO = "native"
@@ -43,21 +52,40 @@ class InferenceSettings:
     audio: str = DEFAULT_AUDIO
     frames: str = DEFAULT_FRAMES
     transport: str = DEFAULT_TRANSPORT
+    strip_mm_kwargs: bool = False
     reasoning: str = DEFAULT_REASONING
 
     def describe(self) -> str:
-        return f"audio={self.audio} frames={self.frames} transport={self.transport} reasoning={self.reasoning}"
+        text = f"audio={self.audio} frames={self.frames} transport={self.transport} reasoning={self.reasoning}"
+        return text + (" strip_mm_kwargs" if self.strip_mm_kwargs else "")
 
 
 def read_inference_block(extra: dict[str, Any], *, allowed: tuple[str, ...], where: str) -> dict[str, Any]:
-    """The ``inference:`` block; only keys that are set (``None`` counts as unset)."""
+    """The ``inference:`` block merged with legacy flat keys; only keys that are set.
+
+    ``None`` counts as unset, matching how the legacy keys were read.
+    """
     block = extra.get("inference") or {}
     if not isinstance(block, dict):
         raise ValueError(f"{where}: 'inference' must be a mapping, got {type(block).__name__}")
     unknown = sorted(set(block) - set(allowed))
     if unknown:
         raise ValueError(f"{where}: unknown inference key(s) {unknown}. Allowed here: {list(allowed)}")
-    return {k: v for k, v in block.items() if v is not None}
+    values = {k: v for k, v in block.items() if v is not None}
+    for key in allowed:
+        legacy = LEGACY_KEYS.get(key)
+        if legacy is None or extra.get(legacy) is None:
+            continue
+        if key in values and _norm(values[key]) != _norm(extra[legacy]):
+            raise ValueError(
+                f"{where}: inference.{key}={values[key]!r} conflicts with legacy {legacy}={extra[legacy]!r}"
+            )
+        values.setdefault(key, extra[legacy])
+    return values
+
+
+def _norm(value: Any) -> Any:
+    return value.lower() if isinstance(value, str) else value
 
 
 def resolve_inference(
@@ -73,12 +101,14 @@ def resolve_inference(
     )
 
     audio = str(b.get("audio", m.get("audio", DEFAULT_AUDIO))).lower()
+
     frames = _resolve_frames(model, benchmark, m, b, frame_modes)
 
     settings = InferenceSettings(
         audio=audio,
         frames=frames,
         transport=str(m.get("transport", DEFAULT_TRANSPORT)).lower(),
+        strip_mm_kwargs=bool(m.get("strip_mm_kwargs", False)),
         reasoning=str(m.get("reasoning", DEFAULT_REASONING)).lower(),
     )
     _validate(settings)
@@ -105,7 +135,7 @@ def _resolve_frames(
 ) -> str:
     """Benchmark > model > adapter default. Typos always raise; a known mode the
     adapter cannot run falls back to its default with a warning, except when the
-    benchmark sets it explicitly (error)."""
+    benchmark sets it through ``inference.frames`` (explicit -> error)."""
     if not frame_modes:
         if "frames" in b:
             return _known_frames(b["frames"], f"benchmark '{benchmark.name}'")
@@ -117,7 +147,11 @@ def _resolve_frames(
         frames = _known_frames(b["frames"], where)
         if frames in frame_modes:
             return frames
-        raise ValueError(f"{where} sets frames={frames!r}, but its adapter supports only {list(frame_modes)}")
+        if "frames" in (benchmark.extra.get("inference") or {}):
+            raise ValueError(f"{where} sets frames={frames!r}, but its adapter supports only {list(frame_modes)}")
+        # The legacy key used to be ignored by adapters that only send video.
+        _warn_fallback(where, f"frame_sampling={frames!r}", default, frame_modes)
+        return default
     if "frames" in m:
         frames = _known_frames(m["frames"], f"model '{model.name}'")
         if frames in frame_modes:

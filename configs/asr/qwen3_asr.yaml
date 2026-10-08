@@ -1,0 +1,21 @@
+# Qwen3-ASR-1.7B through a vLLM endpoint.
+#
+# Its feature extractor takes a fixed 30s window (chunk_length 30), so the
+# strategy slices the audio itself and stamps each segment from its chunk
+# offset. limit_s caps how much audio is read at all — set it to whatever the
+# comparison target can hear, or transcript length becomes an unfair advantage.
+asr:
+  strategy:
+    name: vllm_asr
+    model: Qwen3-ASR-1.7B
+    device: cuda            # 실제 배치는 서버가 하므로 참고값
+    options:
+      base_url: http://127.0.0.1:8002/v1
+      served_model_name: Qwen3-ASR-1.7B
+      chunk_s: 30
+      limit_s: 300           # Qwen3-Omni 오디오 인코더 상한과 동일
+      max_tokens: 448
+      temperature: 0
+  cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+  strict_cache: false
+  with_timestamps: true

@@ -31,17 +31,37 @@ BENCH_ORDER = ["av_speakerbench", "worldsense", "videomme", "omnivideobench", "o
 # captioning benchmarks report generation metrics rather than accuracy.
 CAPTION_BENCH = {"omnidcbench"}
 
-# Full model names shown in the report (result dir name -> served model full name).
+# Labels for result dirs written before ``display_name:`` existed (no
+# config_used.json). New runs take the label from the model config's
+# ``display_name:``, recorded in each run's config_used.json.
 MODEL_LABEL = {
     "qwen3-omni": "Qwen3-Omni-30B-A3B-Instruct",
     "nemotron-3-nano-omni": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8",
     "nemotron-3-nano-omni-bf16": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
     "nemotron-3-nano-omni-nvfp4": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4",
 }
+#: result dir name -> display_name, filled from config_used.json by load_display_names().
+DISPLAY_NAMES: dict[str, str] = {}
 
 
 def model_label(name: str) -> str:
-    return MODEL_LABEL.get(name, name)
+    return DISPLAY_NAMES.get(name) or MODEL_LABEL.get(name, name)
+
+
+def load_display_names(results_dir: Path) -> dict[str, str]:
+    """``display_name`` per result dir, from the run-level config_used.json."""
+    names: dict[str, str] = {}
+    for model_dir in sorted(p for p in results_dir.iterdir() if p.is_dir()):
+        snapshot = model_dir / "config_used.json"
+        if not snapshot.exists():
+            continue
+        try:
+            label = (json.loads(snapshot.read_text()).get("model") or {}).get("display_name")
+        except (json.JSONDecodeError, OSError):
+            continue
+        if label:
+            names[model_dir.name] = str(label)
+    return names
 
 
 # Compact labels for detail-table column headers, where the full name is too wide
@@ -568,6 +588,8 @@ def render_report(results_dir: Path, out: Path | None = None) -> Path:
     data = load_results(results_dir)
     if not data:
         raise ValueError(f"No summary.json found under {results_dir}")
+    DISPLAY_NAMES.clear()
+    DISPLAY_NAMES.update(load_display_names(results_dir))
     tp_path = results_dir / "throughput.json"
     throughput = None
     if tp_path.exists():

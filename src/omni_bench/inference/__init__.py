@@ -5,17 +5,17 @@ Four independent axes, each a registry of name -> class:
 =========  ==========================  ==========================================
 axis       registry                    options
 =========  ==========================  ==========================================
-audio      ``AUDIO_STRATEGIES``        native
-frames     ``FRAME_STRATEGIES``        client · server (fixed per adapter)
-transport  ``TRANSPORTS``              file
-reasoning  ``REASONING_STRATEGIES``    as_is
+audio      ``AUDIO_STRATEGIES``        native · none · asr_text
+frames     ``FRAME_STRATEGIES``        client · server
+transport  ``TRANSPORTS``              file · base64
+reasoning  ``REASONING_STRATEGIES``    as_is · split
 =========  ==========================  ==========================================
 
 :class:`InferencePipeline` is built once per (model, benchmark) and turns an
 adapter's :class:`MediaRequest` into OpenAI chat-completion arguments (and
-reads the answer out of the response), so adapters never branch on these
-choices. A new option is one class registered on its axis, e.g.
-``@TRANSPORTS.register("s3")``.
+splits reasoning out of the response), so
+adapters never branch on these choices. A new option is one class registered on
+its axis, e.g. ``@TRANSPORTS.register("s3")``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from omni_bench.inference.audio import AUDIO_STRATEGIES, AudioStrategy
+from omni_bench.inference.audio import (
+    AUDIO_STRATEGIES,
+    AsrCommandPool,
+    AudioStrategy,
+    resolve_asr_settings,
+)
 from omni_bench.inference.base import (
     BuildContext,
     BuiltRequest,
@@ -39,6 +44,10 @@ from omni_bench.inference.frames import FRAME_STRATEGIES, FrameStrategy
 from omni_bench.inference.reasoning import REASONING_STRATEGIES, ReasoningStrategy
 from omni_bench.inference.settings import InferenceSettings, InferenceWarning, resolve_inference
 from omni_bench.inference.transport import TRANSPORTS, Transport
+
+#: Per-request processor/IO overrides. Servers that reject them outright (HTTP
+#: 400) need the keys gone, not just set to False — see ``strip_mm_kwargs``.
+MM_KWARG_KEYS = ("mm_processor_kwargs", "media_io_kwargs")
 
 
 @dataclass(slots=True)
@@ -58,9 +67,10 @@ class InferencePipeline:
         benchmark: Any | None = None,
         *,
         frame_modes: tuple[str, ...] | None = None,
+        asr_pool: AsrCommandPool | None = None,
     ) -> "InferencePipeline":
         settings = resolve_inference(model, benchmark, frame_modes)
-        ctx = BuildContext(model=model, benchmark=benchmark)
+        ctx = BuildContext(model=model, benchmark=benchmark, asr_pool=asr_pool)
         return cls(
             settings=settings,
             audio=AUDIO_STRATEGIES.get(settings.audio).create(ctx),
@@ -92,6 +102,9 @@ class InferencePipeline:
             body["top_p"] = request.top_p
         if request.do_sample is not None:
             body["do_sample"] = request.do_sample
+        if self.settings.strip_mm_kwargs:
+            for key in MM_KWARG_KEYS:
+                body.pop(key, None)
         return BuiltRequest(
             messages=messages,
             max_tokens=request.max_tokens,
@@ -103,6 +116,7 @@ class InferencePipeline:
 
 __all__ = [
     "AUDIO_STRATEGIES",
+    "AsrCommandPool",
     "AudioStrategy",
     "BuildContext",
     "BuiltRequest",
@@ -113,6 +127,7 @@ __all__ = [
     "InferencePipeline",
     "InferenceSettings",
     "InferenceWarning",
+    "MM_KWARG_KEYS",
     "MediaRequest",
     "REASONING_STRATEGIES",
     "ReasoningStrategy",
@@ -122,5 +137,6 @@ __all__ = [
     "VideoFrames",
     "file_url",
     "merge_extra_body",
+    "resolve_asr_settings",
     "resolve_inference",
 ]

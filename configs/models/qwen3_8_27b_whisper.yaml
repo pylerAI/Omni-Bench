@@ -1,0 +1,50 @@
+# E1 main run: Qwen3.8-27B with audio supplied as a Whisper transcript.
+# Qwen3.8-27B has no audio encoder, so the cascade replaces the audio modality
+# with text; the benchmark's official prompt is preserved byte-for-byte and the
+# transcript is prepended to it.
+global:
+  result_dir: ../../results
+  request_timeout_s: 900
+
+models:
+  - name: qwen3.8-27b-whisper
+    display_name: "Qwen3.8-27B + Whisper"   # shown in report.html
+    served_model_name: Qwen3.8-27B
+    weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
+    base_url: http://127.0.0.1:8000/v1
+    inference:
+      audio: asr_text
+    # Qwen3.8-27B's chat template opens <think> by default. Left on, the reply
+    # carries the reasoning trace ahead of the answer, and the benchmarks'
+    # official parsers take the first A-D match they see — the trace itself
+    # names the options, so it mis-parses. It also breaks OmniDCBench, which
+    # expects a bare JSON array, and costs ~17x the output tokens.
+    # Off also matches the baseline: Qwen3-Omni-30B-A3B-Instruct is non-thinking.
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+    asr:
+      strategy:
+        name: faster_whisper
+        model: Systran/faster-whisper-large-v3
+        device: cuda
+        compute_type: float16
+        language: null
+        options:
+          beam_size: 5
+          vad_filter: true
+          condition_on_previous_text: false
+      cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+      strict_cache: false
+      with_timestamps: true
+      max_chars: null
+    vllm:
+      host: 127.0.0.1
+      port: 8000
+      tensor_parallel_size: 1
+      data_parallel_size: auto
+      gpu_memory_utilization: 0.9
+      extra_args:
+        - --trust-remote-code
+        - --allowed-local-media-path
+        - /gpfs/public/datasets

@@ -1,4 +1,4 @@
-"""ffmpeg helpers for audio: duration, audio-stream check, 16 kHz WAV demux.
+"""ffmpeg helpers shared by the STT strategies.
 
 Strategies consume 16 kHz mono audio. Video inputs are demuxed to a temporary
 WAV; audio inputs are passed through untouched when they already match.
@@ -14,7 +14,7 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
-AUDIO_SUFFIXES = (".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus")
+from omni_bench.asr.schema import AUDIO_SUFFIXES
 
 TARGET_SAMPLE_RATE = 16_000
 
