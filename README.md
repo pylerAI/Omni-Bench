@@ -37,20 +37,6 @@ Supported benchmarks:
 | OmniVideoBench | [docs/omnivideobench.md](docs/omnivideobench.md) | `omnivideobench` |
 | OmniDCBench | [docs/omnidcbench.md](docs/omnidcbench.md) | `omnidcbench` |
 
-## Inference Strategies
-
-Per-model input handling is selected in the model config's `inference:` block; adapters do not branch on it.
-
-| Axis | Options | Default | Meaning |
-| --- | --- | --- | --- |
-| `audio` | `native` · `none` · `asr_text` | `native` | Send audio as is · drop it · inject an ASR transcript (engine from `asr.strategy.name`). A benchmark config may override it. |
-| `frames` | `client` · `server` | per benchmark | Client-sampled frames · original video sampled by the model server. Benchmark config > model config > benchmark default. |
-| `transport` | `file` · `base64` | `file` | `file://` URL · base64 data URL (large files via the `transcode:` cache). |
-| `strip_mm_kwargs` | `true` · `false` | `false` | Model config only. Drops `mm_processor_kwargs` / `media_io_kwargs`, which some remote servers reject. |
-| `reasoning` | `server` · `think_tag` · `none` | `server` | Model config only. Server already splits reasoning · answer is the text after the last `</think>` in `content` (servers without a reasoning parser) · no processing. Stored runs can be re-scored with `omni-bench rescore --run-dir <dir> --out-dir <dir> [--reasoning ...]`. |
-
-For `asr_text`, pre-fill the Whisper cache with `uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml`.
-
 ## Project Layout
 
 ```text
@@ -216,4 +202,4 @@ To add a new benchmark, follow these steps:
 3. Add an entry to `configs/benchmarks/default.yaml` or to a separate benchmark config
 4. Document the protocol, metrics, and output table in `docs/<benchmark_name>.md`
 
-To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`.
+To add a new model, add a model config under `configs/models/` and, if needed, write a `scripts/serve_<model>.sh`. Per-model input handling (ASR transcript, frame sampling, video transport, reasoning) is set in the config's `inference:` block; see [docs/inference_strategies.md](docs/inference_strategies.md).
