@@ -24,8 +24,8 @@ Initial evaluation targets:
 | --- | --- |
 | Qwen3-Omni-30B-A3B-Instruct | `configs/models/qwen3_omni.yaml` |
 | Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8 | `configs/models/nemotron_3_nano_omni.yaml` |
-| Qwen3.8-27B + Whisper ([plan](docs/qwen3.8_plan.md) · [implementation](docs/qwen3_8_whisper.md)) | `configs/models/qwen3_8_27b_whisper.yaml` · measurement: `configs/recommend/qwen3_8_27b_*.yaml` |
-| Nemotron 3.5 Super VL + Whisper ([docs](docs/nemotron_super_vl.md)) | `configs/models/nemotron_3_5_super_vl_{bf16,nvfp4}.yaml` · measurement: `configs/nemotron_super_vl/*.yaml` |
+| Qwen3.8-27B + Whisper | `configs/models/qwen3_8_27b_whisper.yaml` · measurement: `configs/recommend/qwen3_8_27b_*.yaml` |
+| Nemotron 3.5 Super VL + Whisper | `configs/models/nemotron_3_5_super_vl_{bf16,nvfp4}.yaml` · measurement: `configs/nemotron_super_vl/*.yaml` |
 
 Supported benchmarks:
 

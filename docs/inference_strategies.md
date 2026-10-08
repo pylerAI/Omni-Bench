@@ -58,6 +58,11 @@ uv run omni-bench rescore \
   --reasoning think_tag
 ```
 
+Related scripts for thinking runs:
+
+- `scripts/strip_truncated.py <benchmark|all> --run-dir results/<model> [--dry-run]` removes records whose final answer was cut off at `max_tokens` (`finish_reason == length`, or `<think>` without `</think>`; OmniDCBench also drops rows whose `prediction_json` is null) and backs the originals up to `~/trash`. Re-running the same `omni-bench run` command then retries only those items.
+- `scripts/rescore_mcq.py results/<model>/<benchmark>/records.jsonl [options]` re-scores multiple-choice records from stored responses with a stricter letter extractor (explicit answer markers first, otherwise the last standalone A-D) and prints it next to the official parser's score.
+
 ## Adding a Strategy
 
 Each axis is a registry in `src/omni_bench/inference/`. Subclass the axis base class, then register it by name to make it selectable from YAML:

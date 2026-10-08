@@ -1,6 +1,6 @@
 # 4종 thinking 벤치 설정 · inference.frames: server
 # max_tokens 는 보완 런 기준(32,768). 8,192 로는 4.4~13.9% 가 추론 중 끊겨
-# 최종 답이 유실된다 — docs/qwen3_8_whisper.md 의 '잘린 건 보완' 참고.
+# 최종 답이 유실된다 — scripts/strip_truncated.py 로 잘린 건을 지우고 재실행하면 보완된다.
 benchmarks:
 - name: worldsense
   data_path: /gpfs/public/datasets/WorldSense

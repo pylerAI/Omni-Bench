@@ -1,5 +1,5 @@
 # non-thinking 벤치 설정 · inference.frames: server
-# recommend config — docs/qwen3.8_plan.md 참고
+# recommend config (Qwen 권장 샘플링 · inference.frames: server)
 benchmarks:
 - name: worldsense
   data_path: /gpfs/public/datasets/WorldSense

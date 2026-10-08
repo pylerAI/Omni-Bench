@@ -173,4 +173,14 @@ Audio transcript of the media (speech recognised automatically):
 - **Per benchmark**: the transcript replaces the audio input. Video-MME runs with `inference.audio: none` in `configs/benchmarks/default.yaml` (the official protocol does not use audio), so nothing is injected there by default. AV-SpeakerBench and OmniDCBench transcribe the video's own audio track; WorldSense and OmniVideoBench transcribe their demuxed `.wav`.
 - **Recorded per request**: `asr_chars`, the length of the injected block, is stored in each record (`null` when nothing was injected).
 
-Full per-benchmark prompts are in [Qwen3.8-27B + Whisper — Assembled Prompts](qwen3_8_whisper.md#assembled-prompts).
+Assembled text part per benchmark, for a clip with one detected utterance (`<block>` is the transcript block above; options shortened):
+
+| Benchmark | Media parts | Text part |
+| --- | --- | --- |
+| AV-SpeakerBench | `video_url` (original video) | `<block>` + `Select the best answer to the following multiple-choice question based on the video. Respond with only the letter (A, B, C, or D) of the correct option.\nHow many people speak in the video?\nA. one ...\nThe best answer is:` |
+| WorldSense | `image_url` × 8 (client frames, default) or `video_url` (`frames: server`) | `<block>` + `These are the frames of a video and the corresponding audio. Select the best answer ... \nQuestion: What is the speaker preparing?\nA. bread ...\nAnswer: ` |
+| OmniVideoBench | JPEG-sequence `video_url` (client, default) or original `video_url` (`frames: server`); system prompt from the adapter | `<block>` + `You are given a video. Based on the content of the video, answer the following question:\n\nQuestion:\n... \n\nOptions:\nA. ...\n\nAnswer with the option's letter directly(e.g., A, B, C, or D)...` |
+| OmniDCBench | `video_url` (original video) | `<block>` + `Thoroughly describe everything in the video, capturing every detail. ...` + the timestamped-JSON instruction and clip-length cap |
+| Video-MME | `image_url` × 64 (client, default) or `video_url` (`frames: server`) | No block (`inference.audio: none`): `Select the best answer ... \n<question>\nA. ...\nThe best answer is:` |
+
+A clip with no speech gets `Audio transcript: (no speech detected)` + blank line + the official prompt.

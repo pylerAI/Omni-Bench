@@ -1,5 +1,5 @@
 # Video-MME thinking 벤치 설정
-# recommend config — docs/qwen3.8_plan.md 참고
+# recommend config (Qwen 권장 샘플링 · inference.frames: server)
 benchmarks:
 - name: videomme
   annotation_file: /gpfs/public/datasets/Video-MME/videomme/test-00000-of-00001.parquet

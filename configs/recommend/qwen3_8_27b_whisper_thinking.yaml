@@ -1,5 +1,5 @@
 # 4종(WorldSense·OmniVideoBench·AV-SpeakerBench·OmniDCBench) thinking · Whisper ASR 주입
-# recommend config — docs/qwen3.8_plan.md 참고
+# recommend config (Qwen 권장 샘플링 · inference.frames: server)
 benchmark_config: bench_thinking.yaml   # paired benchmark config (CLI --benchmark-config overrides)
 models:
 - name: qwen3.8-27b-whisper-srvthink
