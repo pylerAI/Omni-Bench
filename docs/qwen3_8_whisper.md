@@ -321,7 +321,24 @@ For OmniDCBench, items whose `prediction_json` is `null` are removed as well. In
 
 ### 5. Rescoring Thinking Runs
 
-The official parser takes the first `[ABCD]` character of the response as the answer, so thinking outputs, where reasoning text comes first, get wrong answers picked up. Rescore from the stored responses.
+The local vLLM is served without a reasoning parser, so a thinking reply arrives as `<reasoning>\n</think>\n\nB` in `content`. The official parser takes the first `[ABCD]` character, so it reads letters from the reasoning. The thinking configs therefore set `inference.reasoning: think_tag`: the text before the last `</think>` is stored as `reasoning`, the official parser sees only what follows, and the raw content is kept as `response_raw`.
+
+Runs recorded before this setting existed are re-scored without inference by re-applying the strategy and the adapter's own parser and summary code. The source run is only read.
+
+```bash
+uv run omni-bench rescore --run-dir results/qwen3.8-27b-whisper-srvthink \
+    --benchmark-config configs/recommend/bench_thinking.yaml \
+    --reasoning think_tag --out-dir results_rescored
+```
+
+| Benchmark | official parser on raw content | `think_tag` + official parser | robust parser (`rescore_mcq.py`) |
+| --- | --- | --- | --- |
+| Video-MME | 27.70 | 77.44 | 77.33 |
+| WorldSense | 23.33 | 61.07 | 61.32 |
+| OmniVideoBench | 0.00 | 52.30 | 52.50 |
+| AV-SpeakerBench | 38.39 | 65.19 | 65.35 |
+
+The reported thinking numbers are the robust-parser values. `scripts/rescore_mcq.py` remains available for that comparison:
 
 ```bash
 python scripts/rescore_mcq.py results/<model>/<benchmark>/records.jsonl options
@@ -565,6 +582,7 @@ uv run python tests/smoke_asr.py        # strategy registry · cache · demux ·
 uv run python tests/smoke_client.py     # 3 audio modes · 2 frames modes · transcript injection position
 uv run python tests/smoke_override.py   # benchmark overrides · asr merge · shared engine pool · config-key warnings
 uv run python tests/smoke_transport.py  # file/base64 transport · re-encoding cache · inference block = legacy keys
+uv run python tests/smoke_reasoning.py  # reasoning strategies · rescore (source untouched)
 ```
 
 The paths that use real Whisper weights and a vLLM server must be checked separately.

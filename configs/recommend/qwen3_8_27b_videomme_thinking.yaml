@@ -6,6 +6,7 @@ models:
   base_url: http://127.0.0.1:8001/v1
   inference:
     audio: none
+    reasoning: think_tag   # local vLLM has no reasoning parser: answer follows </think> in content
   name: qwen3.8-27b-srv-think
   extra_body:
     top_p: 0.95

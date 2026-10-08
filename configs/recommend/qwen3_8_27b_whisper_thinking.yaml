@@ -7,6 +7,7 @@ models:
   base_url: http://127.0.0.1:8001/v1
   inference:
     audio: asr_text
+    reasoning: think_tag   # local vLLM has no reasoning parser: answer follows </think> in content
   extra_body:
     top_p: 0.95
     top_k: 20

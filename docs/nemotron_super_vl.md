@@ -44,7 +44,9 @@ Super VL has no public model card, so the official recommended values of the sam
 | `enable_thinking` | false | **true** |
 | `max_tokens` | 4,096 | **32,768** (from the start) |
 
-For think responses, the server's reasoning parser splits the output into `message.reasoning` and `content`. Only the answer remains in `content`, so unlike Qwen3.8 think, scoring uses **the official parser directly** (`rescore_mcq.py` is not needed).
+For think responses, the server's reasoning parser splits the output into `message.reasoning` and `content`. Only the answer remains in `content`, so unlike Qwen3.8 think, scoring uses **the official parser directly** (`rescore_mcq.py` is not needed). The configs therefore keep the default `inference.reasoning: server`.
+
+No-think occasionally emits inline reasoning ending in `</think>` inside `content` (Video-MME: BF16 20 items, NVFP4 1). The reported numbers keep the `server` setting. Re-scoring with `omni-bench rescore --reasoning think_tag` gives Video-MME BF16 67.30 → 67.52 and NVFP4 67.11 → 67.07; no other benchmark changes.
 
 ### Remote Server Constraints
 

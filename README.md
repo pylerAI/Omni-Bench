@@ -47,6 +47,7 @@ Per-model input handling is selected in the model config's `inference:` block; a
 | `frames` | `client` · `server` | per benchmark | Client-sampled frames · original video sampled by the model server. Benchmark config > model config > benchmark default. |
 | `transport` | `file` · `base64` | `file` | `file://` URL · base64 data URL (large files via the `transcode:` cache). |
 | `strip_mm_kwargs` | `true` · `false` | `false` | Model config only. Drops `mm_processor_kwargs` / `media_io_kwargs`, which some remote servers reject. |
+| `reasoning` | `server` · `think_tag` · `none` | `server` | Model config only. Server already splits reasoning · answer is the text after the last `</think>` in `content` (servers without a reasoning parser) · no processing. Stored runs can be re-scored with `omni-bench rescore --run-dir <dir> --out-dir <dir> [--reasoning ...]`. |
 
 For `asr_text`, pre-fill the Whisper cache with `uv run python scripts/prepare_asr.py --asr-config configs/asr/whisper_large_v3.yaml`.
 
