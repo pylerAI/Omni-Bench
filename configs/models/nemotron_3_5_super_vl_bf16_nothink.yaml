@@ -1,18 +1,18 @@
-# Nemotron-3.5-Super-VL NVFP4 · non-thinking
+# Nemotron-3.5-Super-VL BF16 · non-thinking
 # Qwen3.8-27B recommend config 와 동일한 입력 조건 (inference.frames: server ·
 # Whisper transcript 주입 · Video-MME 는 벤치 설정에서 inference.audio none).
 # 모델별 차이: 원격 공유 서버(max_model_len 65,536, local media 경로 불가) →
 # inference.transport base64 + 대용량 트랜스코드, mm_processor_kwargs 제거,
 # Nemotron 3 Super 공식 샘플링(temp 1.0 / top_p 0.95, think·no-think 동일).
-benchmark_config: bench_nothink.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+benchmark_config: ../benchmarks/nemotron_3_5_super_vl_nothink.yaml   # paired benchmark config (CLI --benchmark-config overrides)
 global:
   result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
   request_timeout_s: 3600
 models:
-- name: nemotron-3.5-super-vl-nvfp4-nothink
-  served_model_name: nemotron-3.5-super-vl-nvfp4
+- name: nemotron-3.5-super-vl-bf16-nothink
+  served_model_name: nemotron-3.5-super-vl-bf16
   weight_path: /dev/null   # 원격 서버 전용 — --serve 금지
-  base_url: http://vllm-nemotron-3-5-super-vl-nvfp4.vllm:8000/v1
+  base_url: http://vllm-nemotron-3-5-super-vl-bf16.vllm:8000/v1
   inference:
     audio: asr_text
     transport: base64

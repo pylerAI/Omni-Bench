@@ -1,22 +1,23 @@
-# 4종(WorldSense·OmniVideoBench·AV-SpeakerBench·OmniDCBench) thinking · Whisper ASR 주입
+# 4종 non-thinking · Whisper ASR 주입
 # recommend config (Qwen 권장 샘플링 · inference.frames: server)
-benchmark_config: bench_thinking.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+benchmark_config: ../benchmarks/qwen3_8_27b_nothink.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+global:
+  result_dir: ../../results
 models:
-- name: qwen3.8-27b-whisper-srvthink
+- name: qwen3.8-27b-whisper-srvnothink
   served_model_name: Qwen3.8-27B
   weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
   base_url: http://127.0.0.1:8001/v1
   inference:
     audio: asr_text
-    reasoning: split       # local vLLM has no reasoning parser: answer follows </think> in content
   extra_body:
-    top_p: 0.95
+    top_p: 0.8
     top_k: 20
     min_p: 0.0
-    presence_penalty: 0.0
+    presence_penalty: 1.5
     repetition_penalty: 1.0
     chat_template_kwargs:
-      enable_thinking: true
+      enable_thinking: false
   asr:
     strategy:
       name: faster_whisper

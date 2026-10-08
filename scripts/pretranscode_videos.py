@@ -6,7 +6,7 @@ lookup a hit. Settings come from a model config's ``transcode:`` block so the
 cache keys match what the client will look up.
 
     uv run --no-sync python scripts/pretranscode_videos.py \
-        --config configs/nemotron_super_vl/bf16_nothink.yaml \
+        --config configs/models/nemotron_3_5_super_vl_bf16_nothink.yaml \
         --video-dir /gpfs/public/datasets/Video-MME/data \
         --video-dir /gpfs/public/datasets/OmniVideoBench/videos
 

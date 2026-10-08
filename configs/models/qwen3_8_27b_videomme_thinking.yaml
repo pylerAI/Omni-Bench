@@ -1,6 +1,8 @@
 # Video-MME thinking · ASR 미주입(official 프로토콜)
 # recommend config (Qwen 권장 샘플링 · inference.frames: server)
-benchmark_config: bench_videomme_thinking.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+benchmark_config: ../benchmarks/qwen3_8_27b_videomme_thinking.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+global:
+  result_dir: ../../results
 models:
 - served_model_name: Qwen3.8-27B
   weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/

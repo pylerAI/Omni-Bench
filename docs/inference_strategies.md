@@ -13,7 +13,7 @@ uv run omni-bench run \
 A model config may also name its benchmark config with the top-level key `benchmark_config:` (path relative to the model config file), so one `--config` describes a whole measurement. Precedence: `--benchmark-config` on the command line > `benchmark_config:` > `configs/benchmarks/default.yaml`. The resolved path is saved as `benchmark_config_path` in `config_used.json`.
 
 ```yaml
-benchmark_config: bench_thinking.yaml
+benchmark_config: ../benchmarks/qwen3_8_27b_thinking.yaml
 models:
   - name: qwen3.8-27b-whisper-srvthink
 ```
