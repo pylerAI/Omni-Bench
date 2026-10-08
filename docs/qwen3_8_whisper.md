@@ -495,7 +495,7 @@ Looking only at free memory (18GB left out of 183GB) it seems to fit, but the pr
 
 #### Resuming from a Failed Run
 
-The adapter's resume logic looks only at record identifiers (`question_id`, etc.). Error records are also treated as "done", so items that failed due to the server dying are retried only if you re-run **after deleting the error rows from `records.jsonl`**. Otherwise the failures stay in and are aggregated as is.
+Re-running the same command skips finished items and retries only the error rows. Records carrying `error` are not treated as done; they are moved from `records.jsonl` to `records.errors.jsonl` (kept for diagnosis) before the retry (`load_resumable_records` in `src/omni_bench/io.py`).
 
 ### Video-MME Parsing Defect
 
