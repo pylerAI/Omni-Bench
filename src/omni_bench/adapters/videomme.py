@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import math
 import re
+import sys
 import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,7 +15,7 @@ import cv2
 from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter, apply_limit
-from omni_bench.asr.audio import extract_wav, has_audio_stream, media_duration_s
+from omni_bench.asr.audio import ensure_wav, has_audio_stream, media_duration_s
 from omni_bench.subtitles import frame_times, parse_srt, resolve_srt, subtitles_for_frames
 from omni_bench.client import VllmChatClient
 from omni_bench.inference import ImageFrames
@@ -45,7 +46,7 @@ class VideoMMEAdapter(BenchmarkAdapter):
         num_frames = int(benchmark.extra.get("max_frames", 64))
         max_pixels = int(benchmark.extra.get("max_pixels", 768 * 28 * 28))
         concurrency = max(1, int(benchmark.extra.get("concurrency", 8)))
-        use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
+        use_subtitles, use_audio = input_flags(benchmark)
         # Official subtitles ship as SRT next to the videos, not in the parquet.
         # The README requires using only the cues covering the sampled frames.
         subtitle_dir = benchmark.extra.get(
@@ -56,7 +57,6 @@ class VideoMMEAdapter(BenchmarkAdapter):
         # measured under stays the default. On, audio is demuxed once per video
         # and passed alongside the frames — official Video-MME lists audio as an
         # input, and the frames-only setting was a context-window workaround.
-        use_audio = bool(benchmark.extra.get("use_audio", False))
         audio_cache_dir = Path(
             benchmark.extra.get(
                 "audio_cache_dir", (benchmark.data_path or video_dir) and Path(video_dir).parent / "preprocess_cache"
@@ -91,10 +91,10 @@ class VideoMMEAdapter(BenchmarkAdapter):
             target = audio_cache_dir / f"{Path(video_path).stem}.wav"
             result: str | None = None
             try:
-                if target.exists():
-                    result = str(target)
-                elif has_audio_stream(video_path):
-                    result = str(extract_wav(video_path, target))
+                # ensure_wav serializes extraction per path and only ever exposes
+                # a complete file, so concurrent questions on one video share it.
+                if target.exists() or has_audio_stream(video_path):
+                    result = str(ensure_wav(video_path, target))
             except Exception:
                 result = None
             with audio_lock:
@@ -133,7 +133,11 @@ class VideoMMEAdapter(BenchmarkAdapter):
             text = ""
             if srt is not None:
                 indices, total = frame_meta.get(video_path, ([], 0))
-                duration = media_duration_s(video_path) or 0.0
+                duration = media_duration_s(video_path)
+                if not duration:
+                    print(f"[videomme] warning: cannot read the duration of {video_path}; "
+                          "no subtitles for this video", file=sys.stderr)
+                    duration = 0.0
                 text = subtitles_for_frames(
                     parse_srt(srt),
                     frame_times(indices, total, duration),
@@ -204,16 +208,14 @@ class VideoMMEAdapter(BenchmarkAdapter):
                 question["response"] = record.get("response")
             record.update(self.parse_record(record))
 
-        use_audio = bool(benchmark.extra.get("use_audio", False))
-        use_subtitles = bool(benchmark.extra.get("use_subtitles", False))
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)
         summary = summarize_accuracy(records, ("duration", "task_type", "domain"))
         summary.update(
             {
                 "official_results_file": str(output_dir / "official_results.json"),
-                "use_audio": use_audio,
-                "use_subtitles": use_subtitles,
+                "use_audio": input_flags(benchmark)[1],
+                "use_subtitles": input_flags(benchmark)[0],
                 "frame_sampling": frames_mode,
                 "note": "Accuracy is exact-match on the parsed letter; official_results.json "
                 "feeds the official Video-MME evaluator for the reference score. "
@@ -262,6 +264,11 @@ class VideoMMEAdapter(BenchmarkAdapter):
             f"{chr(10).join(item['options'])}\n"
             "The best answer is:"
         )
+
+
+def input_flags(benchmark: BenchmarkConfig) -> tuple[bool, bool]:
+    """(use_subtitles, use_audio), read once for ``run`` and the summary."""
+    return bool(benchmark.extra.get("use_subtitles", False)), bool(benchmark.extra.get("use_audio", False))
 
 
 def sample_video_frames(

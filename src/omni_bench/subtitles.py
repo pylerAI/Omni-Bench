@@ -10,8 +10,9 @@ specific about how to use them:
 
 So this picks the cue covering each sampled frame's timestamp rather than
 dumping the whole track. The cues are auto-generated and roll forward with
-heavy overlap — consecutive frames usually land on the same cue — so
-duplicates are collapsed while order is preserved.
+heavy overlap (consecutive frames usually land on the same cue), so runs of
+the same text are collapsed while order is preserved; a line that returns
+later in the video is kept.
 """
 
 from __future__ import annotations
@@ -61,20 +62,19 @@ def parse_srt(path: str | Path) -> list[Cue]:
 def subtitles_for_frames(
     cues: list[Cue], frame_times_s: list[float], *, max_chars: int | None = None
 ) -> str:
-    """Cue text covering each sampled frame, de-duplicated, order preserved."""
+    """Cue text covering each sampled frame, in order. Consecutive frames that land
+    on the same text are collapsed; a line that comes back later is kept."""
     if not cues or not frame_times_s:
         return ""
     picked: list[str] = []
-    seen: set[str] = set()
     for t in frame_times_s:
         hit = next((c for c in cues if c.start_s <= t <= c.end_s), None)
         if hit is None:
             # Nothing covers this instant; fall back to the nearest earlier cue.
             earlier = [c for c in cues if c.end_s <= t]
             hit = earlier[-1] if earlier else None
-        if hit is None or hit.text in seen:
+        if hit is None or (picked and picked[-1] == hit.text):
             continue
-        seen.add(hit.text)
         picked.append(hit.text)
     text = "\n".join(picked)
     if max_chars is not None and len(text) > max_chars:

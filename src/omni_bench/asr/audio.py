@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -74,9 +76,26 @@ def media_duration_s(media_path: str | Path) -> float | None:
 
 
 def extract_wav(media_path: str | Path, output_path: str | Path) -> Path:
-    """Demux ``media_path`` to 16 kHz mono PCM WAV at ``output_path``."""
+    """Demux ``media_path`` to 16 kHz mono PCM WAV at ``output_path``.
+
+    ffmpeg writes to a unique temp file in the same directory, which is then
+    renamed over ``output_path``; a reader never sees a half-written WAV, even
+    when several callers extract the same file at once.
+    """
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(output.parent), prefix=f".{output.stem}.", suffix=".tmp.wav")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        _run_extract(media_path, tmp)
+        os.replace(tmp, output)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return output
+
+
+def _run_extract(media_path: str | Path, output: Path) -> None:
     command = [
         ffmpeg_binary(),
         "-nostdin",
@@ -91,11 +110,32 @@ def extract_wav(media_path: str | Path, output_path: str | Path) -> Path:
         str(output),
     ]
     completed = subprocess.run(command, capture_output=True, text=True)
-    if completed.returncode != 0 or not output.exists():
+    if completed.returncode != 0 or not output.exists() or output.stat().st_size == 0:
         raise AudioExtractionError(
             f"ffmpeg failed for {media_path}: {completed.stderr.strip()[:500]}"
         )
-    return output
+
+
+_path_locks: dict[str, threading.Lock] = {}
+_path_locks_guard = threading.Lock()
+
+
+def _path_lock(path: Path) -> threading.Lock:
+    with _path_locks_guard:
+        return _path_locks.setdefault(str(path.resolve()), threading.Lock())
+
+
+def ensure_wav(media_path: str | Path, output_path: str | Path) -> Path:
+    """Cached WAV of ``media_path`` at ``output_path``; extracted at most once per
+    path within the process (per-path lock). The file only appears complete,
+    via the atomic rename in :func:`extract_wav`."""
+    output = Path(output_path)
+    if output.exists():
+        return output
+    with _path_lock(output):
+        if output.exists():
+            return output
+        return extract_wav(media_path, output)
 
 
 @contextlib.contextmanager

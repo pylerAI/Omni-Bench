@@ -66,7 +66,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         if not benchmark.annotation_file:
             raise ValueError("OmniDCBench requires annotation_file in config.")
 
-        data_root = Path(benchmark.data_path or ".").expanduser()
+        data_root = benchmark_data_root(benchmark)
         video_dir = Path(benchmark.video_dir or data_root / "Video").expanduser()
         rows = apply_limit(read_jsonl(Path(benchmark.annotation_file).expanduser()), benchmark.limit)
 
@@ -162,7 +162,7 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         write_jsonl(prediction_path, records)
         metric_result = run_official_metrics(
             benchmark=benchmark,
-            data_root=Path(benchmark.data_path or ".").expanduser(),
+            data_root=benchmark_data_root(benchmark),
             output_dir=output_dir,
             prediction_path=prediction_path,
         )
@@ -176,6 +176,11 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
+
+
+def benchmark_data_root(benchmark: BenchmarkConfig) -> Path:
+    """Dataset root shared by ``run`` (videos) and ``finalize`` (metric GT)."""
+    return Path(benchmark.data_path or ".").expanduser()
 
 
 def omnidcbench_extra_body(*, use_audio_in_video: bool) -> dict[str, Any]:
