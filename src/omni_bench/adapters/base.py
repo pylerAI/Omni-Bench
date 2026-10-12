@@ -9,21 +9,13 @@ from omni_bench.config import BenchmarkConfig, ModelConfig
 
 
 class BenchmarkAdapter(ABC):
-    """One benchmark: run inference, then parse and summarize the records.
-
-    ``run`` does inference and must end by calling ``finalize``. Parsing and
-    summarizing are separate abstract methods, not helpers inside ``run``, so
-    stored records can be re-parsed and re-summarized through the exact code a
-    run uses, without inference (a later ``omni-bench rescore`` builds on this).
-    """
-
     name: str
     #: Frames strategies this benchmark can run with; the first is its protocol
     #: default. Adapters that only ever hand over the original video keep "server".
     frame_modes: tuple[str, ...] = ("server",)
-    #: Record field holding the model's answer text.
+    #: Record field holding the model's answer text (what the reasoning strategy rewrites).
     response_field: str = "response"
-    #: Per-sample records the run appends to.
+    #: Per-sample records the run appends to; ``omni-bench rescore`` reads it back.
     records_file: str = "records.jsonl"
 
     @abstractmethod
@@ -51,11 +43,29 @@ class BenchmarkAdapter(ABC):
         output_dir: Path,
         frames_mode: str,
     ) -> dict[str, Any]:
-        """Summary + output files from finished records (no inference)."""
+        """Summary + output files from finished records (no inference). Shared by
+        ``run`` and ``omni-bench rescore``."""
         raise NotImplementedError
 
 
-def apply_limit(items: list[Any], limit: int | None) -> list[Any]:
-    if limit is None:
+LIMIT_MODES = ("head", "spread")
+
+
+def apply_limit(items: list[Any], limit: int | None, mode: str | None = None) -> list[Any]:
+    """First ``limit`` items, or (``spread``) ``limit`` evenly spaced ones.
+
+    ``spread`` gives a smoke subset that covers the whole dataset (e.g. every
+    Video-MME duration bucket) instead of only its first, shortest clips; the
+    choice is deterministic so a resumed run picks the same items.
+    """
+    if limit is None or limit >= len(items):
         return items
-    return items[:limit]
+    mode = (mode or "head").lower()
+    if mode == "head":
+        return items[:limit]
+    if mode == "spread":
+        if limit <= 0:
+            return []
+        step = len(items) / limit
+        return [items[int(i * step)] for i in range(limit)]
+    raise ValueError(f"Unknown limit_mode '{mode}'. Known: {list(LIMIT_MODES)}")

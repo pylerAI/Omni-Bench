@@ -133,6 +133,8 @@ class OmniDCBenchAdapter(BenchmarkAdapter):
             }
             if fallback_reason:
                 record["audio_fallback_reason"] = fallback_reason
+            if completion.response_raw is not None:
+                record["response_raw"] = completion.response_raw
             return record
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:

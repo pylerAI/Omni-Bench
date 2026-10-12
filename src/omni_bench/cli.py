@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from typing import Iterable
+import dataclasses
+import datetime as dt
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any, Iterable
 
 from omni_bench.adapters import ADAPTER_NAMES, get_adapter
 from omni_bench.client import build_chat_client
 from omni_bench.config import BenchmarkConfig, ModelConfig, load_config
+from omni_bench.inference import AsrCommandPool
 from omni_bench.io import ensure_dir, write_json
+from omni_bench.perf import summarize_perf
 from omni_bench.report import render_report
 from omni_bench.serving import serve_model, vllm_command
 
@@ -21,16 +29,40 @@ def main() -> None:
     run_parser.add_argument(
         "--benchmark-config",
         default=None,
-        help="Path to benchmark YAML config. Defaults to configs/benchmarks/default.yaml.",
+        help="Path to benchmark YAML config. Overrides the model config's `benchmark_config:`; "
+             "defaults to configs/benchmarks/default.yaml.",
     )
     run_parser.add_argument("--model", action="append", help="Model name to run. Repeatable.")
     run_parser.add_argument("--benchmark", action="append", help="Benchmark name to run. Repeatable.")
     run_parser.add_argument("--serve", action="store_true", help="Start vLLM serve for each model before evaluation.")
+    run_parser.add_argument("--limit", type=int, default=None,
+                            help="Evaluate only N items of each benchmark (overrides config).")
+    run_parser.add_argument("--limit-mode", choices=("head", "spread"), default=None,
+                            help="With --limit: first N items (head) or N evenly spaced items (spread).")
+    run_parser.add_argument("--result-dir", default=None,
+                            help="Override global.result_dir (e.g. a separate smoke-test root).")
 
     serve_parser = subparsers.add_parser("serve", help="Print or run a vLLM serve command for a model.")
     serve_parser.add_argument("--config", required=True, help="Path to YAML config.")
     serve_parser.add_argument("--model", required=True, help="Model name in config.")
     serve_parser.add_argument("--print-only", action="store_true", help="Print the command without running it.")
+
+    rescore_parser = subparsers.add_parser(
+        "rescore", help="Re-parse and re-summarize a stored model run (no inference).")
+    rescore_parser.add_argument("--run-dir", required=True, help="Model result dir: <result_dir>/<model>.")
+    rescore_parser.add_argument("--out-dir", required=True,
+                                help="Output root; writes <out-dir>/<model>/<benchmark>/. Must not overlap --run-dir.")
+    rescore_parser.add_argument("--benchmark", action="append", help="Benchmark name to rescore. Repeatable.")
+    rescore_parser.add_argument("--reasoning", default=None, choices=("as_is", "split"),
+                                help="Reasoning strategy override: as_is (content is the answer) or split "
+                                     "(answer after the last </think>). Default: the run's config_used.json, "
+                                     "else the model config, else as_is.")
+    rescore_parser.add_argument("--config", default=None,
+                                help="Model YAML standing in for a missing config_used.json: its inference "
+                                     "settings (e.g. reasoning) and `benchmark_config:` are used.")
+    rescore_parser.add_argument("--benchmark-config", default=None,
+                                help="Benchmark YAML for runs without config_used.json. Overrides --config's "
+                                     "`benchmark_config:`; default configs/benchmarks/default.yaml.")
 
     subparsers.add_parser("list-benchmarks", help="List supported benchmark adapters.")
 
@@ -39,6 +71,14 @@ def main() -> None:
         run(args)
     elif args.command == "serve":
         serve(args)
+    elif args.command == "rescore":
+        from omni_bench.rescore import rescore_run
+
+        results = rescore_run(args.run_dir, args.out_dir, benchmarks=args.benchmark,
+                              reasoning=args.reasoning, benchmark_config=args.benchmark_config,
+                              model_config=args.config)
+        for name, summary in results.items():
+            print(f"{name}: accuracy={summary.get('accuracy')} total={summary.get('total')}")
     elif args.command == "list-benchmarks":
         for name in sorted(ADAPTER_NAMES):
             print(name)
@@ -46,9 +86,19 @@ def main() -> None:
 
 def run(args: argparse.Namespace) -> None:
     cfg = load_config(args.config, benchmark_path=args.benchmark_config)
+    if args.result_dir:
+        cfg.result_dir = Path(args.result_dir).expanduser().resolve()
     models = _filter_by_name(cfg.models, args.model)
     benchmarks = [b for b in _filter_by_name(cfg.benchmarks, args.benchmark) if b.enabled]
+    if args.limit is not None:
+        for benchmark in benchmarks:
+            benchmark.limit = args.limit
+    if args.limit_mode is not None:
+        for benchmark in benchmarks:
+            benchmark.extra["limit_mode"] = args.limit_mode
     run_summary: dict[str, dict[str, object]] = {}
+    # Shared across benchmarks so an STT engine is loaded at most once per config.
+    asr_pool = AsrCommandPool()
 
     for model in models:
         context = serve_model(model, cfg.result_dir / "logs") if args.serve else contextlib.nullcontext()
@@ -56,23 +106,50 @@ def run(args: argparse.Namespace) -> None:
             model_summary: dict[str, object] = {}
             for benchmark in benchmarks:
                 adapter = get_adapter(benchmark.name)
-                # Inference strategies are resolved per benchmark: frames are
-                # limited to what the adapter supports.
+                # Inference strategies are resolved per benchmark: a benchmark whose
+                # official protocol excludes audio stays audio-free even in asr_text
+                # mode, and frames are limited to what the adapter supports.
                 client = build_chat_client(
                     model,
                     default_timeout_s=cfg.request_timeout_s,
                     benchmark=benchmark,
                     frame_modes=adapter.frame_modes,
+                    pool=asr_pool,
                 )
+                print(f"[{model.name}/{benchmark.name}] {client.pipeline.settings.describe()}")
                 output_dir = ensure_dir(
                     cfg.result_dir / model.name / (benchmark.result_subdir or benchmark.name)
                 )
-                model_summary[benchmark.name] = adapter.run(
+                write_config_snapshot(output_dir, args=args, model=model, benchmarks=[benchmark],
+                                      result_dir=cfg.result_dir, timeout_s=cfg.request_timeout_s,
+                                      inference=dataclasses.asdict(client.pipeline.settings),
+                                      benchmark_config_path=cfg.benchmark_config_path)
+                started = time.perf_counter()
+                summary = adapter.run(
                     benchmark=benchmark,
                     model=model,
                     client=client,
                     output_dir=output_dir,
                 )
+                wall_s = time.perf_counter() - started
+                # Timed here rather than in each adapter, so all five report the
+                # same throughput and latency fields.
+                if isinstance(summary, dict):
+                    summary["perf"] = summarize_perf(
+                        output_dir,
+                        wall_s=wall_s,
+                        concurrency=benchmark.extra.get("concurrency")
+                        or benchmark.extra.get("max_workers"),
+                    )
+                    write_json(output_dir / "summary.json", summary)
+                    perf = summary["perf"]
+                    print(
+                        f"[{model.name}/{benchmark.name}] {perf['samples']} samples in "
+                        f"{perf['wall_min']}min · {perf['samples_per_s']}/s · "
+                        f"latency p50 {(perf['latency_s'] or {}).get('p50')}s "
+                        f"p90 {(perf['latency_s'] or {}).get('p90')}s · errors {perf['errors']}"
+                    )
+                model_summary[benchmark.name] = summary
             run_summary[model.name] = model_summary
 
     ensure_dir(cfg.result_dir)
@@ -83,6 +160,46 @@ def run(args: argparse.Namespace) -> None:
         print(f"HTML report: {report_path}")
     except Exception as exc:  # report generation must never fail the run
         print(f"Skipped HTML report: {type(exc).__name__}: {exc}")
+
+
+def _git_state() -> dict[str, Any]:
+    repo = Path(__file__).resolve().parents[2]
+
+    def git(*cmd: str) -> str | None:
+        try:
+            return subprocess.run(["git", "-C", str(repo), *cmd], capture_output=True,
+                                  text=True, check=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    status = git("status", "--porcelain", "--untracked-files=no")
+    return {"commit": git("rev-parse", "HEAD"), "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+            "dirty": bool(status) if status is not None else None}
+
+
+def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: ModelConfig,
+                          benchmarks: list[BenchmarkConfig], result_dir: Path,
+                          timeout_s: float, inference: dict[str, Any] | None = None,
+                          benchmark_config_path: Path | None = None) -> None:
+    """``config_used.json`` in the benchmark dir and the run (model) dir.
+
+    The run-level copy is overwritten by each benchmark invocation, so the
+    benchmark-level one is the authoritative record for that benchmark.
+    """
+    snapshot = {
+        "written_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "argv": sys.argv,
+        "config_path": str(Path(args.config).resolve()),
+        "benchmark_config_path": str(benchmark_config_path) if benchmark_config_path else None,
+        "result_dir": str(result_dir),
+        "request_timeout_s": timeout_s,
+        "git": _git_state(),
+        "inference": inference,
+        "model": dataclasses.asdict(model),
+        "benchmarks": [dataclasses.asdict(b) for b in benchmarks],
+    }
+    write_json(output_dir / "config_used.json", snapshot)
+    write_json(output_dir.parent / "config_used.json", snapshot)
 
 
 def serve(args: argparse.Namespace) -> None:

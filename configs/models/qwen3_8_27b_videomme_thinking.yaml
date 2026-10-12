@@ -1,0 +1,22 @@
+# Video-MME thinking · ASR 미주입(official 프로토콜)
+# recommend config (Qwen 권장 샘플링 · inference.frames: server)
+benchmark_config: ../benchmarks/qwen3_8_27b_videomme_thinking.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+global:
+  result_dir: ../../results
+models:
+- served_model_name: Qwen3.8-27B
+  weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
+  base_url: http://127.0.0.1:8000/v1   # scripts/serve_qwen3_8_27b.sh default port
+  inference:
+    audio: none
+    reasoning: split       # local vLLM has no reasoning parser: answer follows </think> in content
+  name: qwen3.8-27b-srv-think
+  display_name: "Qwen3.8-27B (thinking)"   # shown in report.html
+  extra_body:
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 0.0
+    repetition_penalty: 1.0
+    chat_template_kwargs:
+      enable_thinking: true

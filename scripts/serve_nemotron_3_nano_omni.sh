@@ -7,7 +7,12 @@ VLLM="${VLLM_BIN:-$REPO_ROOT/.venv/bin/vllm}"
 [ -x "$VLLM" ] || VLLM="vllm"
 
 # FlashInfer JIT-compiles some kernels at load, needing ninja + nvcc on PATH.
-export PATH="$REPO_ROOT/.venv/bin${PATH:+:$PATH}"
+# Derive the bin dir from the vllm we actually run: the venv is not always the
+# repo's own .venv (on an NFS home it must live elsewhere), and hardcoding
+# $REPO_ROOT/.venv left ninja off PATH, which fails engine init with
+# "FileNotFoundError: 'ninja'" only once the first sampling kernel is built.
+VENV_BIN="$(cd "$(dirname "$VLLM")" 2>/dev/null && pwd)"
+[ -n "$VENV_BIN" ] && export PATH="$VENV_BIN${PATH:+:$PATH}"
 [ -d /usr/local/cuda/bin ] && export PATH="/usr/local/cuda/bin:$PATH"
 [ -d /usr/local/cuda ] && export CUDA_HOME="${CUDA_HOME:-/usr/local/cuda}"
 

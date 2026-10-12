@@ -1,0 +1,47 @@
+# Nemotron-3.5-Super-VL NVFP4 · thinking
+# Qwen3.8-27B recommend config 와 동일한 입력 조건 (inference.frames: server ·
+# Whisper transcript 주입 · Video-MME 는 벤치 설정에서 inference.audio none).
+# 모델별 차이: 원격 공유 서버(max_model_len 65,536, local media 경로 불가) →
+# inference.transport base64 + 대용량 트랜스코드, mm_processor_kwargs 제거,
+# Nemotron 3 Super 공식 샘플링(temp 1.0 / top_p 0.95, think·no-think 동일).
+benchmark_config: ../benchmarks/nemotron_3_5_super_vl_think.yaml   # paired benchmark config (CLI --benchmark-config overrides)
+global:
+  result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
+  request_timeout_s: 3600
+models:
+- name: nemotron-3.5-super-vl-nvfp4-think
+  display_name: "Nemotron-3.5-Super-VL-NVFP4 + Whisper (thinking)"   # shown in report.html
+  served_model_name: nemotron-3.5-super-vl-nvfp4
+  weight_path: /dev/null   # 원격 서버 전용 — --serve 금지
+  base_url: http://vllm-nemotron-3-5-super-vl-nvfp4.vllm:8000/v1
+  inference:
+    audio: asr_text
+    transport: base64
+    strip_mm_kwargs: true
+  transcode:
+    threshold_mb: 200
+    cache_dir: /gpfs/public/artifacts/ail/nemotron-compare/cache/transcode
+    preset: veryfast
+    threads: 8
+    ladder:
+    - {max_height: 720, crf: 28}
+    - {max_height: 480, crf: 30}
+    - {max_height: 360, crf: 32}
+  # top_k / presence_penalty 등은 보내지 않는다 (서버 기본값). temperature 는 벤치 설정.
+  extra_body:
+    top_p: 0.95
+    chat_template_kwargs:
+      enable_thinking: true
+  asr:
+    strategy:
+      name: faster_whisper
+      model: Systran/faster-whisper-large-v3
+      device: cuda
+      device_index: 0
+      compute_type: float16
+      options:
+        beam_size: 5
+        vad_filter: true
+        condition_on_previous_text: false
+    cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+    strict_cache: true

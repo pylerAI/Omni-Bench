@@ -1,0 +1,21 @@
+# Shared ASR settings. Referenced by model configs (inference.audio: asr_text) and by
+# scripts/prepare_asr.py.
+asr:
+  strategy:
+    name: faster_whisper          # see omni_bench.asr.strategies registry
+    model: Systran/faster-whisper-large-v3
+    device: cuda
+    compute_type: float16
+    language: null                # null = auto-detect per clip
+    options:
+      beam_size: 5
+      vad_filter: true
+      condition_on_previous_text: false
+      # num_workers is set from --threads-per-gpu at runtime. Pin it here only
+      # to override that.
+  # gpfs. The repo itself sits on NFS (/home/ail), which is the wrong place for
+  # a store this hot — and the transcripts outlive any one checkout.
+  cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+  strict_cache: false             # true = fail instead of transcribing inline
+  with_timestamps: true
+  max_chars: null

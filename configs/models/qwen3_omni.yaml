@@ -4,6 +4,7 @@ global:
 
 models:
   - name: qwen3-omni
+    display_name: "Qwen3-Omni-30B-A3B-Instruct"   # shown in report.html
     served_model_name: Qwen3-Omni-30B-A3B-Instruct
     weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3-Omni-30B-A3B-Instruct/
     base_url: http://127.0.0.1:8000/v1
