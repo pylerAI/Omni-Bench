@@ -43,7 +43,8 @@ Supported benchmarks:
 configs/
   asr/                  ASR engine settings (whisper_large_v3.yaml, qwen3_asr.yaml)
   benchmarks/           default.yaml + per-measurement benchmark configs
-  models/               one model config per measurement (inference:, display_name:, benchmark_config:)
+  models/               one model config per measurement (inference:, display_name:, benchmark_config:, extends:)
+  models/_base/         shared bases the measurement configs extend (not run on their own)
 docs/                   benchmark docs, inference_strategies.md, asr.md
 scripts/
   serve_*.sh            vLLM serve scripts (qwen3_omni, nemotron_3_nano_omni, qwen3_8_27b, qwen3_asr)
@@ -217,7 +218,7 @@ Each `summary.json` also carries a `perf` block, computed from the records after
 | `latency_s` · `prompt_tokens` · `completion_tokens` | Per-request distributions: `n`, `mean`, `p50`, `p90`, `p99`, `max`, `sum`. Latency includes server queueing, so compare it only within one run |
 | `prompt_tokens_per_s` · `output_tokens_per_s` · `total_tokens_per_s` | Token throughput over the wall time |
 
-Every run also writes `config_used.json` to the benchmark directory and to the model directory (the latter is overwritten by each benchmark, so the benchmark-level copy is authoritative). It records `written_at`, `argv`, `config_path`, `benchmark_config_path` (resolved), `result_dir`, `request_timeout_s`, `git` (commit, branch, dirty), `inference` (the resolved audio / frames / transport / reasoning), and the full `model` and `benchmarks` settings. `omni-bench rescore` reads it to re-apply the same settings, and the HTML report takes model labels from its `model.display_name`.
+Every run also writes `config_used.json` to the benchmark directory and to the model directory (the latter is overwritten by each benchmark, so the benchmark-level copy is authoritative). It records `written_at`, `argv`, `config_path`, `config_chain` (files merged through `extends:`), `benchmark_config_path` (resolved), `result_dir`, `request_timeout_s`, `git` (commit, branch, dirty), `inference` (the resolved audio / frames / transport / reasoning), and the full `model` and `benchmarks` settings. `omni-bench rescore` reads it to re-apply the same settings, and the HTML report takes model labels from its `model.display_name`.
 
 ## Development Guide
 

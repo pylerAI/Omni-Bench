@@ -21,13 +21,9 @@ to that default, an explicit benchmark-level one is an error.
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from typing import Any
 
-
-class InferenceWarning(UserWarning):
-    """An inference setting was adjusted to what the benchmark adapter supports."""
 
 #: new key -> legacy flat key
 LEGACY_KEYS = {
@@ -162,11 +158,9 @@ def _resolve_frames(
 
 
 def _warn_fallback(where: str, requested: str, used: str, frame_modes: tuple[str, ...]) -> None:
-    warnings.warn(
-        f"{where}: {requested} is not supported by the adapter ({list(frame_modes)}); using frames={used!r}",
-        InferenceWarning,
-        stacklevel=4,
-    )
+    from omni_bench.io import warn
+
+    warn(f"{where}: {requested} is not supported by the adapter ({list(frame_modes)}); using frames={used!r}")
 
 
 def _validate(settings: InferenceSettings) -> None:

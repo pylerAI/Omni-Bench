@@ -1,0 +1,14 @@
+# Base for the Qwen3.8-27B recommend-config measurements (not runnable alone):
+# Qwen-recommended sampling, server-side frame sampling (set in the benchmark
+# configs), served by scripts/serve_qwen3_8_27b.sh. The nothink / thinking
+# bases below add the mode-specific sampling.
+global:
+  result_dir: ../../../results   # relative to this file: <repo>/results
+models:
+- served_model_name: Qwen3.8-27B
+  weight_path: /gpfs/public/artifacts/models/Qwen/Qwen3.8-27B/
+  base_url: http://127.0.0.1:8000/v1   # scripts/serve_qwen3_8_27b.sh default port
+  extra_body:
+    top_k: 20
+    min_p: 0.0
+    repetition_penalty: 1.0

@@ -18,6 +18,32 @@ models:
   - name: qwen3.8-27b-whisper-srvthink
 ```
 
+### Shared bases (`extends:`)
+
+A model config can build on base configs with the top-level key `extends:`, a path or a list of paths relative to the file. Bases can extend further; a cycle is an error.
+
+- Merge order: the bases in list order, then the file itself. A later value wins.
+- Mappings merge key by key (deep); any other value, lists included, is replaced wholesale.
+- `models:` when the base and the child each hold exactly one model, the child's entry is deep-merged onto the base's (so a child usually writes only `name`, `display_name`, and what differs). Otherwise the child's list replaces the base's.
+- Path keys (`benchmark_config`, `global.result_dir`) resolve against the file that declares them.
+- Unknown keys are checked on the merged result, so a typo in a child is still reported.
+- `config_used.json` records the merged settings and `config_chain`, every file that contributed (base first).
+
+Bases live in `configs/models/_base/` and are not run on their own. For example, a Super VL measurement config is the Super VL base plus the Whisper mixin plus a few lines:
+
+```yaml
+extends: [_base/nemotron_3_5_super_vl.yaml, _base/asr_whisper_large_v3.yaml]
+benchmark_config: ../benchmarks/nemotron_3_5_super_vl_think.yaml
+models:
+- name: nemotron-3.5-super-vl-bf16-think
+  display_name: "Nemotron-3.5-Super-VL-BF16 + Whisper (thinking)"
+  served_model_name: nemotron-3.5-super-vl-bf16
+  base_url: http://vllm-nemotron-3-5-super-vl-bf16.vllm:8000/v1
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+```
+
 Adapters do not branch on these choices. Prompts, answer parsing, and scoring are the same for every strategy.
 
 ## Configuration
@@ -41,7 +67,7 @@ models:
 | `strip_mm_kwargs` | `true` · `false` | `false` | Drops `mm_processor_kwargs` / `media_io_kwargs`, which some remote servers reject. Model config only. |
 | `reasoning` | `as_is` · `split` | `as_is` | Content is the answer as received (a separate reasoning field from the server is recorded) · answer is the text after the last `</think>`, the rest is recorded as reasoning (servers without a reasoning parser). Model config only. |
 
-The old flat keys `audio_mode`, `frame_sampling`, and `video_transport` are still accepted. Unknown config keys print a warning, and typos inside `inference:` raise an error. The resolved values are printed per benchmark and saved in `config_used.json`.
+The old flat keys `audio_mode`, `frame_sampling`, and `video_transport` are still accepted. Unknown config keys print a one-line `warning:` to stderr, and typos inside `inference:` raise an error. The resolved values are printed per benchmark and saved in `config_used.json`.
 
 ## ASR Transcripts
 
