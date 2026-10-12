@@ -2,16 +2,25 @@ name: tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      # Tests need no GPU, model server, or dataset.
-      - run: uv sync --locked
-      - run: uv run pytest
+      # Tests need no GPU, model server, or dataset, and never import the GPU
+      # stack (vllm runs as a subprocess, torch / transformers are lazy imports),
+      # so those packages are skipped. The names come from uv.lock so new
+      # transitive nvidia-* / cuda-* wheels are skipped too.
+      - name: Install (without the GPU stack)
+        run: |
+          skip=$(grep -A1 '^\[\[package\]\]' uv.lock | sed -n 's/^name = "\(.*\)"/\1/p' | sort -u \
+            | grep -E '^(vllm|torch|torchaudio|torchvision|triton|transformers|faster-whisper|ctranslate2|flashinfer-.*|xgrammar|tilelang|tokenspeed-.*|quack-kernels|humming-kernels|apache-tvm-ffi|nvidia-.*|cuda-.*|numba|llvmlite|z3-solver)$')
+          uv sync --locked $(printf -- '--no-install-package %s ' $skip)
+      - run: uv run --no-sync pytest

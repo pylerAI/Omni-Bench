@@ -40,13 +40,10 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
         video_dir = Path(benchmark.video_dir or benchmark.data_path or ".").expanduser()
         items = self._flatten(load_annotation(Path(benchmark.annotation_file)), video_dir)
         items = apply_limit(items, benchmark.limit)
-        max_frames = int(benchmark.extra.get("max_frames", benchmark.extra.get("num_frames", 120)))
-        fps = float(benchmark.extra.get("fps", 2.0))
-        max_workers = int(benchmark.extra.get("max_workers", 2))
-        preprocess_workers = int(benchmark.extra.get("preprocess_workers", 4))
-        cache_dir = Path(
-            benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
-        ).expanduser()
+        settings = run_settings(benchmark, output_dir)
+        max_frames, fps = settings["max_frames"], settings["fps"]
+        max_workers, preprocess_workers = settings["max_workers"], settings["preprocess_workers"]
+        cache_dir = settings["preprocess_cache_dir"]
 
         records_path = output_dir / "records.jsonl"
         existing_records = read_jsonl_records(records_path)
@@ -92,11 +89,10 @@ class OmniVideoBenchAdapter(BenchmarkAdapter):
 
     def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("video_type", "question_type", "audio_type"))
-        summary["max_workers"] = int(benchmark.extra.get("max_workers", 2))
-        summary["preprocess_workers"] = int(benchmark.extra.get("preprocess_workers", 4))
-        summary["preprocess_cache_dir"] = str(Path(
-            benchmark.extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")
-        ).expanduser())
+        settings = run_settings(benchmark, output_dir)
+        summary["max_workers"] = settings["max_workers"]
+        summary["preprocess_workers"] = settings["preprocess_workers"]
+        summary["preprocess_cache_dir"] = str(settings["preprocess_cache_dir"])
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)
         return summary
@@ -224,6 +220,19 @@ def run_single_item(
             "preprocess_cache_path": str(cache_path),
             "error": repr(exc),
         }
+
+
+def run_settings(benchmark: BenchmarkConfig, output_dir: Path) -> dict[str, Any]:
+    """Sampling and worker settings, read once so ``run`` and the summary
+    ``finalize`` writes can never disagree."""
+    extra = benchmark.extra
+    return {
+        "max_frames": int(extra.get("max_frames", extra.get("num_frames", 120))),
+        "fps": float(extra.get("fps", 2.0)),
+        "max_workers": int(extra.get("max_workers", 2)),
+        "preprocess_workers": int(extra.get("preprocess_workers", 4)),
+        "preprocess_cache_dir": Path(extra.get("preprocess_cache_dir", output_dir / "preprocess_cache")).expanduser(),
+    }
 
 
 def parse_answer(record: dict[str, Any]) -> dict[str, Any]:
