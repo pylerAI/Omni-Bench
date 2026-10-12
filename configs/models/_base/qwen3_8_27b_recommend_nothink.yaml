@@ -1,0 +1,8 @@
+# Qwen3.8-27B recommend config, non-thinking sampling.
+extends: qwen3_8_27b_recommend.yaml
+models:
+- extra_body:
+    top_p: 0.8
+    presence_penalty: 1.5
+    chat_template_kwargs:
+      enable_thinking: false

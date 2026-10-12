@@ -1,0 +1,11 @@
+# Qwen3.8-27B recommend config, thinking sampling. The local vLLM has no
+# reasoning parser, so the answer follows </think> in content (reasoning: split).
+extends: qwen3_8_27b_recommend.yaml
+models:
+- inference:
+    reasoning: split
+  extra_body:
+    top_p: 0.95
+    presence_penalty: 0.0
+    chat_template_kwargs:
+      enable_thinking: true

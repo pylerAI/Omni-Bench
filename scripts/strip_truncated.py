@@ -1,20 +1,22 @@
-"""잘린(max_tokens 도달) 레코드를 제거해 재개 시 다시 돌게 만든다.
+"""Remove truncated records (hit max_tokens) so a resumed run retries them.
 
-각 어댑터는 레코드 파일의 키 집합으로 done 을 판단하므로(videomme/omnivideobench/
-av_speakerbench=question_id, worldsense=worldsense_key, omnidcbench=clip_path),
-파일에서 항목을 지우는 것이 유일한 재실행 트리거다. 원본은 ~/trash 로 백업한다.
+Each adapter decides what is done from the keys in its records file
+(videomme / omnivideobench / av_speakerbench = question_id, worldsense =
+worldsense_key, omnidcbench = clip_path), so deleting entries from that file is
+the only way to trigger a re-run. The original file is backed up to ~/trash.
 
-잘림 판정 (순서대로):
-1. 레코드에 ``finish_reason`` 이 있으면 ``== "length"`` 만 본다 (정확한 신호).
-2. 없으면(구버전 레코드) ``completion_tokens >= max_tokens``. max_tokens 는
-   ``--max-tokens`` > ``<bench>/config_used.json`` > 구 SPEC 기본값 순으로 정한다.
-3. 응답 본문에 ``<think>`` 가 열렸는데 ``</think>`` 가 없으면 잘림.
-4. OmniDCBench 는 ``prediction_json`` 이 null 인 건도 제거.
+Truncation rule (in order):
+1. If the record has ``finish_reason``, only ``== "length"`` counts (exact signal).
+2. Otherwise (older records), ``completion_tokens >= max_tokens``, where
+   max_tokens comes from ``--max-tokens`` > ``<bench>/config_used.json`` > the
+   old SPEC default.
+3. The response opens ``<think>`` but never closes it with ``</think>``.
+4. OmniDCBench: records whose ``prediction_json`` is null are removed too.
 
-사용 예:
-    # 새 런 디렉터리 (벤치 하위 디렉터리를 자동 탐색)
+Usage:
+    # new run directory (benchmark subdirectories are discovered)
     python scripts/strip_truncated.py all --run-dir /gpfs/.../omni-bench/nemotron-3.5-super-vl-bf16-think --dry-run
-    # 구 Qwen3.8 경로 (환경변수 OMNI_BENCH_THINK_RESULTS / OMNI_BENCH_VMME_RESULTS)
+    # old Qwen3.8 paths (env OMNI_BENCH_THINK_RESULTS / OMNI_BENCH_VMME_RESULTS)
     python scripts/strip_truncated.py all
 """
 import argparse, json, os, shutil, time
@@ -50,7 +52,7 @@ def configured_max_tokens(bench_dir: Path, name: str) -> int | None:
 
 def is_truncated(rec: dict, limit: int | None, bench: str) -> bool:
     if rec.get("error"):
-        return False  # 에러 건은 어댑터가 재개 시 알아서 재시도한다
+        return False  # error rows are retried by the adapter on resume anyway
     finish = rec.get("finish_reason")
     if finish is not None:
         if finish == "length":
@@ -69,10 +71,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("benchmarks", nargs="+", choices=sorted(RECORD_FILE) + ["all"])
     ap.add_argument("--run-dir", type=Path, default=None,
-                    help="런 디렉터리 (<run-dir>/<bench>/records.jsonl). 생략 시 구 Qwen3.8 경로.")
+                    help="Run directory (<run-dir>/<bench>/records.jsonl). Default: the old Qwen3.8 paths.")
     ap.add_argument("--max-tokens", type=int, default=None,
-                    help="finish_reason 이 없는 레코드에 쓸 상한 (기본: config_used.json).")
-    ap.add_argument("--report", type=Path, default=None, help="리포트 JSON 경로.")
+                    help="max_tokens for records without finish_reason (default: config_used.json).")
+    ap.add_argument("--report", type=Path, default=None, help="Report JSON path.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     names = sorted(RECORD_FILE) if "all" in args.benchmarks else args.benchmarks
@@ -86,14 +88,14 @@ def main() -> None:
             path, limit = legacy_spec(name)
             limit = args.max_tokens or limit
         if not path.exists():
-            print(f"{name:16} 파일 없음 — 건너뜀 ({path})")
+            print(f"{name:16} file missing, skipped ({path})")
             continue
         recs = [json.loads(l) for l in path.open() if l.strip()]
         keep = [r for r in recs if not is_truncated(r, limit, name)]
         cut = len(recs) - len(keep)
         report[name] = {"path": str(path), "total": len(recs), "truncated": cut,
                         "kept": len(keep), "limit": limit}
-        print(f"{name:16} 전체 {len(recs):5} · 잘림 {cut:4} ({cut*100/max(len(recs),1):.1f}%) · 유지 {len(keep):5}")
+        print(f"{name:16} total {len(recs):5} · truncated {cut:4} ({cut*100/max(len(recs),1):.1f}%) · kept {len(keep):5}")
         if args.dry_run or cut == 0:
             continue
         trash = Path(os.path.expanduser("~/trash"))
@@ -106,7 +108,7 @@ def main() -> None:
             for r in keep:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         os.replace(tmp, path)
-        print(f"{'':16} → 백업 {backup}")
+        print(f"{'':16} -> backup {backup}")
     default_report = (args.run_dir / "truncation_report.json") if args.run_dir else Path(
         os.environ.get("OMNI_BENCH_TRUNCATION_REPORT", "truncation_report.json"))
     out = args.report or default_report

@@ -1,0 +1,29 @@
+# Base for the Nemotron-3.5-Super-VL measurement configs (not runnable alone).
+# Remote shared server (max_model_len 65,536, no local media paths) ->
+# base64 transport + transcode cache for large files, mm_processor_kwargs removed.
+# Sampling follows the official Nemotron 3 Super card (temp 1.0 / top_p 0.95,
+# think and no-think alike); temperature lives in the benchmark config.
+# Children set name, display_name, served_model_name, base_url, benchmark_config.
+global:
+  result_dir: /gpfs/public/artifacts/ail/nemotron-compare/omni-bench
+  request_timeout_s: 3600
+models:
+- weight_path: /dev/null   # remote endpoint only; never --serve
+  inference:
+    audio: asr_text
+    transport: base64
+    strip_mm_kwargs: true
+  transcode:
+    threshold_mb: 200
+    cache_dir: /gpfs/public/artifacts/ail/nemotron-compare/cache/transcode
+    preset: veryfast
+    threads: 8
+    ladder:
+    - {max_height: 720, crf: 28}
+    - {max_height: 480, crf: 30}
+    - {max_height: 360, crf: 32}
+  # top_k / presence_penalty are not sent (server defaults).
+  extra_body:
+    top_p: 0.95
+    chat_template_kwargs:
+      enable_thinking: false

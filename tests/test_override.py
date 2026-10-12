@@ -4,7 +4,6 @@ precedence, config-key warnings, and benchmark_config resolution."""
 from __future__ import annotations
 
 import json
-import warnings
 from pathlib import Path
 
 import pytest
@@ -16,12 +15,11 @@ from omni_bench.client import build_chat_client
 from omni_bench.config import (
     DEFAULT_BENCHMARK_CONFIG,
     BenchmarkConfig,
-    ConfigWarning,
     ModelConfig,
     load_config,
     resolve_benchmark_config,
 )
-from omni_bench.inference import AsrCommandPool, InferenceWarning, resolve_asr_settings, resolve_inference
+from omni_bench.inference import AsrCommandPool, resolve_asr_settings, resolve_inference
 from omni_bench.inference.audio import AsrTextAudio, NoAudio
 
 REPO = Path(__file__).resolve().parents[1]
@@ -103,23 +101,24 @@ PLAIN = ModelConfig(name="p", weight_path="/x")
 SRV = ModelConfig(name="s", weight_path="/x", extra={"inference": {"frames": "server"}})
 
 
-def test_frames_precedence_benchmark_model_default():
+def test_frames_precedence_benchmark_model_default(capsys):
     assert resolve_inference(PLAIN, bm("worldsense"), FM).frames == "client"
     assert resolve_inference(PLAIN, bm("worldsense", frame_sampling="server"), FM).frames == "server"
     assert resolve_inference(PLAIN, bm("worldsense", inference={"frames": "server"}), FM).frames == "server"
     assert resolve_inference(SRV, bm("worldsense"), FM).frames == "server"
     assert resolve_inference(SRV, bm("worldsense", inference={"frames": "client"}), FM).frames == "client"
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", InferenceWarning)          # normal paths do not warn
-        resolve_inference(SRV, bm("worldsense"), FM)
-        resolve_inference(PLAIN, bm("av_speakerbench"), ("server",))
+    capsys.readouterr()
+    resolve_inference(SRV, bm("worldsense"), FM)                   # normal paths do not warn
+    resolve_inference(PLAIN, bm("av_speakerbench"), ("server",))
+    assert capsys.readouterr().err == ""
 
 
-def test_frames_unsupported_or_misspelled():
+def test_frames_unsupported_or_misspelled(capsys):
     with pytest.raises(ValueError, match="supports only"):        # explicit new key -> error
         resolve_inference(PLAIN, bm("av_speakerbench", inference={"frames": "client"}), ("server",))
-    with pytest.warns(InferenceWarning, match="av_speakerbench"):  # legacy key used to be ignored
-        assert resolve_inference(PLAIN, bm("av_speakerbench", frame_sampling="client"), ("server",)).frames == "server"
+    # legacy key used to be ignored -> warning + adapter default
+    assert resolve_inference(PLAIN, bm("av_speakerbench", frame_sampling="client"), ("server",)).frames == "server"
+    assert "av_speakerbench" in capsys.readouterr().err
     for typo in (ModelConfig(name="t", weight_path="/x", extra={"inference": {"frames": "sever"}}),
                  ModelConfig(name="t", weight_path="/x", extra={"frame_sampling": "sever"})):
         with pytest.raises(ValueError, match="Unknown frames"):
@@ -127,25 +126,25 @@ def test_frames_unsupported_or_misspelled():
     with pytest.raises(ValueError, match="Unknown frames"):
         resolve_inference(PLAIN, bm("worldsense", frame_sampling="sever"), FM)
     cli_model = ModelConfig(name="cm", weight_path="/x", extra={"inference": {"frames": "client"}})
-    with pytest.warns(InferenceWarning) as caught:
-        assert resolve_inference(cli_model, bm("omnidcbench"), ("server",)).frames == "server"
-    assert all(t in str(caught[0].message) for t in ("omnidcbench", "'client'", "'server'"))
+    assert resolve_inference(cli_model, bm("omnidcbench"), ("server",)).frames == "server"
+    err = capsys.readouterr().err
+    assert all(t in err for t in ("warning: ", "omnidcbench", "'client'", "'server'"))
     with pytest.raises(ValueError, match="unknown inference key"):
         resolve_inference(PLAIN, bm("videomme", inference={"transport": "base64"}), FM)
 
 
-def test_unknown_config_keys_warn_and_known_extras_stay_silent(tmp_path):
+def test_unknown_config_keys_warn_and_known_extras_stay_silent(tmp_path, capsys):
     cfg_path = tmp_path / "m.yaml"
     cfg_path.write_text("models:\n- name: t\n  weight_path: /x\n  audio_mdoe: none\n"
                         "benchmarks:\n- name: worldsense\n  num_frames: 8\n  num_frame: 4\n  max_workers: 2\n")
-    with pytest.warns(ConfigWarning) as caught:
-        load_config(cfg_path, cfg_path)
-    msgs = [str(w.message) for w in caught]
+    load_config(cfg_path, cfg_path)
+    msgs = capsys.readouterr().err.splitlines()
+    assert msgs and all(m.startswith("warning: ") for m in msgs)    # one stderr line per warning
     assert any("audio_mdoe" in m for m in msgs) and any("num_frame'" in m for m in msgs)
     assert not any("'num_frames'" in m.split("known")[0] or "'max_workers'" in m.split("known")[0] for m in msgs)
 
 
-def test_benchmark_config_precedence_and_relative_path(tmp_path, monkeypatch):
+def test_benchmark_config_precedence_and_relative_path(tmp_path, monkeypatch, capsys):
     sub = tmp_path / "cfgs" / "nested"
     sub.mkdir(parents=True)
     (sub / "pair.yaml").write_text("benchmarks:\n- name: worldsense\n  num_frames: 3\n")
@@ -155,9 +154,8 @@ def test_benchmark_config_precedence_and_relative_path(tmp_path, monkeypatch):
     plain = tmp_path / "plain.yaml"
     plain.write_text("models:\n- name: p\n  weight_path: /x\n")
     monkeypatch.chdir("/")                                         # must not depend on the CWD
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")                             # the key is known: no ConfigWarning
-        got = load_config(keyed)
+    got = load_config(keyed)
+    assert capsys.readouterr().err == ""                           # the key is known: no warning
     assert got.benchmark_config_path == (sub / "pair.yaml").resolve()
     assert [b.name for b in got.benchmarks] == ["worldsense"] and got.benchmarks[0].extra["num_frames"] == 3
     assert [b.name for b in load_config(keyed, tmp_path / "cli.yaml").benchmarks] == ["videomme"]   # CLI wins

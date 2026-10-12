@@ -123,7 +123,8 @@ def run(args: argparse.Namespace) -> None:
                 write_config_snapshot(output_dir, args=args, model=model, benchmarks=[benchmark],
                                       result_dir=cfg.result_dir, timeout_s=cfg.request_timeout_s,
                                       inference=dataclasses.asdict(client.pipeline.settings),
-                                      benchmark_config_path=cfg.benchmark_config_path)
+                                      benchmark_config_path=cfg.benchmark_config_path,
+                                      config_chain=cfg.config_chain)
                 started = time.perf_counter()
                 summary = adapter.run(
                     benchmark=benchmark,
@@ -180,7 +181,8 @@ def _git_state() -> dict[str, Any]:
 def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: ModelConfig,
                           benchmarks: list[BenchmarkConfig], result_dir: Path,
                           timeout_s: float, inference: dict[str, Any] | None = None,
-                          benchmark_config_path: Path | None = None) -> None:
+                          benchmark_config_path: Path | None = None,
+                          config_chain: list[Path] | None = None) -> None:
     """``config_used.json`` in the benchmark dir and the run (model) dir.
 
     The run-level copy is overwritten by each benchmark invocation, so the
@@ -190,6 +192,8 @@ def write_config_snapshot(output_dir: Path, *, args: argparse.Namespace, model: 
         "written_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "argv": sys.argv,
         "config_path": str(Path(args.config).resolve()),
+        # Files merged through `extends:` (base first); `model` below is the merged result.
+        "config_chain": [str(p) for p in (config_chain or [])],
         "benchmark_config_path": str(benchmark_config_path) if benchmark_config_path else None,
         "result_dir": str(result_dir),
         "request_timeout_s": timeout_s,

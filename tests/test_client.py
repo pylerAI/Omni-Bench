@@ -9,7 +9,7 @@ from omni_bench.asr.schema import TranscriptionSegment
 from omni_bench.asr.strategies import SttStrategy, register_strategy
 from omni_bench.client import build_chat_client
 from omni_bench.config import ModelConfig
-from omni_bench.inference import ImageFrames, InferenceWarning
+from omni_bench.inference import ImageFrames
 from omni_bench.inference.audio import AsrTextAudio, NativeAudio, NoAudio
 
 
@@ -75,7 +75,7 @@ def test_client_frames_without_audio_file_inject_nothing(openai_stub, media, asr
     assert text_of(openai_stub.last) == "QUESTION" and parts(openai_stub.last) == ["image_url", "text"]
 
 
-def test_server_frames_send_the_video_and_transcribe_its_track(openai_stub, media, asr_raw):
+def test_server_frames_send_the_video_and_transcribe_its_track(openai_stub, media, asr_raw, capsys):
     srv = ModelConfig(name="m", weight_path="/x", base_url="http://x/v1",
                       extra={"inference": {"audio": "asr_text", "frames": "server"}, "asr": asr_raw})
     c = build_chat_client(srv, frame_modes=("client", "server"))
@@ -83,8 +83,8 @@ def test_server_frames_send_the_video_and_transcribe_its_track(openai_stub, medi
     assert parts(openai_stub.last) == ["video_url", "text"] and "spoken words" in text_of(openai_stub.last)
     # an adapter that only sends video keeps server even if the model asks for client
     cli = ModelConfig(name="m", weight_path="/x", extra={"inference": {"frames": "client"}})
-    with pytest.warns(InferenceWarning):
-        assert build_chat_client(cli, frame_modes=("server",)).frames_mode == "server"
+    assert build_chat_client(cli, frame_modes=("server",)).frames_mode == "server"
+    assert "warning: " in capsys.readouterr().err
 
 
 def test_strict_cache_refuses_to_transcribe_inline(openai_stub, media, asr_raw):

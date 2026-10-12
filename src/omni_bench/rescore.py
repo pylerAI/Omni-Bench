@@ -21,6 +21,7 @@ from omni_bench.config import (
     ModelConfig,
     _load_benchmark,
     _load_model,
+    load_raw_config,
     resolve_benchmark_config,
 )
 from omni_bench.inference import REASONING_STRATEGIES, resolve_inference
@@ -33,7 +34,7 @@ def _benchmark_from(config_used: dict[str, Any] | None, name: str, benchmark_con
     if config_used and config_used.get("benchmarks"):
         return BenchmarkConfig(**config_used["benchmarks"][0])
     path = benchmark_config or DEFAULT_BENCHMARK_CONFIG
-    raw = yaml.safe_load(Path(path).read_text()) or {}
+    raw = yaml.safe_load(Path(path).read_text()) or {}  # benchmark configs have no extends
     for item in raw.get("benchmarks", []):
         if item.get("name") == name:
             return _load_benchmark(item)
@@ -46,7 +47,7 @@ def _model_from(config_used: dict[str, Any] | None, name: str, model_config: Pat
         raw.pop("vllm", None)
         return ModelConfig(**raw)
     if model_config:
-        models = (yaml.safe_load(Path(model_config).read_text()) or {}).get("models") or []
+        models = load_raw_config(model_config)[0].get("models") or []
         if models:
             return _load_model(models[0])
     return ModelConfig(name=name, weight_path="")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import types
-import warnings
 
 import pytest
 
@@ -19,7 +18,6 @@ from omni_bench.inference import (
     TRANSPORTS,
     ImageFrames,
     InferencePipeline,
-    InferenceWarning,
     MediaRequest,
     VideoFrames,
     resolve_inference,
@@ -94,12 +92,11 @@ def test_frames_follow_the_adapter():
     assert get_adapter("worldsense").frame_modes[0] == "client"
 
 
-def test_frames_model_choice_the_adapter_cannot_run_warns_and_falls_back():
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        got = resolve_inference(model(inference={"frames": "client"}), BenchmarkConfig(name="omnidcbench"), ("server",))
+def test_frames_model_choice_the_adapter_cannot_run_warns_and_falls_back(capsys):
+    got = resolve_inference(model(inference={"frames": "client"}), BenchmarkConfig(name="omnidcbench"), ("server",))
     assert got.frames == "server"
-    assert any(issubclass(w.category, InferenceWarning) and "omnidcbench" in str(w.message) for w in caught)
+    err = capsys.readouterr().err
+    assert err.startswith("warning: ") and "omnidcbench" in err and err.count("\n") == 1
 
 
 def test_frames_benchmark_choice_the_adapter_cannot_run_raises():

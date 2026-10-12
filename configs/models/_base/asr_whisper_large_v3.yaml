@@ -1,0 +1,16 @@
+# Mixin: Whisper large-v3 transcripts from the shared cache (cache only).
+# Used through `extends:` by the cascade measurement configs; not runnable alone.
+models:
+- asr:
+    strategy:
+      name: faster_whisper
+      model: Systran/faster-whisper-large-v3
+      device: cuda
+      device_index: 0
+      compute_type: float16
+      options:
+        beam_size: 5
+        vad_filter: true
+        condition_on_previous_text: false
+    cache_dir: /gpfs/public/artifacts/ail/omni-bench/cache/asr
+    strict_cache: true

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable
+
+
+def warn(message: str) -> None:
+    """One-line ``warning: ...`` to stderr. Used instead of ``warnings.warn``,
+    which deduplicates and is easy to miss in CLI output."""
+    print(f"warning: {message}", file=sys.stderr, flush=True)
 
 
 def ensure_dir(path: str | Path) -> Path:

@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import yaml  # noqa: E402
+from omni_bench.config import load_raw_config  # noqa: E402
 
 from omni_bench.video_transport import (  # noqa: E402
     VIDEO_SUFFIXES,
@@ -41,7 +41,7 @@ from omni_bench.video_transport import (  # noqa: E402
 def load_settings(config_path: str | None, model_name: str | None) -> TranscodeSettings:
     if not config_path:
         return TranscodeSettings()
-    raw = yaml.safe_load(Path(config_path).read_text()) or {}
+    raw, _ = load_raw_config(config_path)   # follows extends:
     models = raw.get("models") or []
     if model_name:
         models = [m for m in models if m.get("name") == model_name]
