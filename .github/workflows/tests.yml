@@ -14,12 +14,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+      - name: Install ffmpeg (audio helper tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       # Tests need no GPU, model server, or dataset, and never import the GPU
       # stack (vllm runs as a subprocess, torch / transformers are lazy imports),
       # so those packages are skipped. The names come from uv.lock so new
       # transitive nvidia-* / cuda-* wheels are skipped too.
-      - name: Install ffmpeg (audio helper tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install (without the GPU stack)
         run: |
           skip=$(grep -A1 '^\[\[package\]\]' uv.lock | sed -n 's/^name = "\(.*\)"/\1/p' | sort -u \
