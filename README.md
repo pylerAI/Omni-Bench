@@ -55,6 +55,8 @@ src/omni_bench/
   client.py
   config.py
   io.py
+  subtitles.py    Video-MME SRT cues matched to sampled frames
+  asr/audio.py    ffmpeg audio helpers (duration, audio-stream check, WAV demux)
 submodules/
 tests/            pytest suite (no GPU, server, or dataset needed)
 .github/workflows/tests.yml
