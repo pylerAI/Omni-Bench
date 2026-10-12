@@ -15,12 +15,15 @@ from tqdm import tqdm
 
 from omni_bench.adapters.base import BenchmarkAdapter
 from omni_bench.client import VllmChatClient
+from omni_bench.inference import ImageFrames
 from omni_bench.config import BenchmarkConfig, ModelConfig
 from omni_bench.io import append_jsonl, read_json, read_jsonl_records, summarize_accuracy, write_json
 
 
 class VideoMMEAdapter(BenchmarkAdapter):
     name = "videomme"
+    # Client-side frames as images, like VLMEvalKit's Video-MME_64frame.
+    frame_modes = ("client",)
 
     def run(
         self,
@@ -90,7 +93,8 @@ class VideoMMEAdapter(BenchmarkAdapter):
             try:
                 completion = client.complete(
                     self._prompt(item, use_subtitles=use_subtitles),
-                    image_urls=frames_for(item["video_path"]),
+                    video_path=item["video_path"],
+                    frames=lambda: ImageFrames(frames_for(item["video_path"])),
                     max_tokens=benchmark.max_tokens,
                     temperature=benchmark.temperature,
                 )
@@ -122,9 +126,31 @@ class VideoMMEAdapter(BenchmarkAdapter):
             if qid in response_by_qid:
                 item["question_ref"]["response"] = response_by_qid[qid]
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode, official=official)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_answer(record.get("response"))
+        return {"parsed_answer": parsed, "is_correct": parsed == record.get("answer")}
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode, official=None) -> dict[str, Any]:
+        """Parses every record (error rows included, as the official file needs a
+        response per question). ``official`` is the template ``run`` already
+        filled; without it (records only) the template is rebuilt from the
+        annotation and filled from the records."""
+        if official is None:
+            official = deepcopy(load_videomme_annotation(benchmark.annotation_file))
+            question_by_qid = {
+                str(question.get("question_id")): question
+                for video in official
+                for question in video.get("questions", [])
+            }
+            for record in records:
+                question = question_by_qid.get(str(record.get("question_id")))
+                if question is not None:
+                    question["response"] = record.get("response")
         for record in records:
-            record["parsed_answer"] = extract_answer(record.get("response"))
-            record["is_correct"] = record["parsed_answer"] == record.get("answer")
+            record.update(self.parse_record(record))
 
         write_json(output_dir / "official_results.json", official)
         write_json(output_dir / "records.json", records)

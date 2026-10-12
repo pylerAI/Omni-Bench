@@ -57,9 +57,7 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 temperature=benchmark.temperature,
                 extra_body=extra_body_for_mode(benchmark.mode),
             )
-            response = completion.text
-            parsed = extract_characters_regex(response)
-            return {
+            record = {
                 "question_id": row.get("question_id"),
                 "video_id": row.get("video_id"),
                 "category": row.get("category"),
@@ -67,9 +65,11 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                 "task_id": row.get("task_id"),
                 "prompt": prompt,
                 "answer": row.get("answer"),
-                "response": response,
-                "parsed_answer": parsed,
-                "is_correct": parsed == row.get("answer"),
+                "response": completion.text,
+            }
+            return {
+                **record,
+                **self.parse_record(record),
                 "latency_s": completion.latency_s,
                 "media_path": str(media_path),
             }
@@ -83,6 +83,14 @@ class AVSpeakerBenchAdapter(BenchmarkAdapter):
                     records.append(record)
                     append_jsonl(records_path, record)
 
+        return self.finalize(records, benchmark=benchmark, output_dir=output_dir,
+                             frames_mode=client.frames_mode)
+
+    def parse_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        parsed = extract_characters_regex(record.get("response"))
+        return {"parsed_answer": parsed, "is_correct": parsed == record.get("answer")}
+
+    def finalize(self, records, *, benchmark, output_dir, frames_mode) -> dict[str, Any]:
         summary = summarize_accuracy(records, ("category", "sub_category", "task_id"))
         write_json(output_dir / "records.json", records)
         write_json(output_dir / "summary.json", summary)

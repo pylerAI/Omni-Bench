@@ -3,11 +3,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openai import OpenAI
 
-from omni_bench.config import ModelConfig
+from omni_bench.config import BenchmarkConfig, ModelConfig
+from omni_bench.inference import ClientFrames, InferencePipeline, MediaRequest
 
 
 @dataclass(slots=True)
@@ -19,45 +20,36 @@ class ChatCompletionResult:
     total_tokens: int | None = None
 
 
-def file_url(path: str | Path) -> str:
-    return Path(path).expanduser().resolve().as_uri()
-
-
-def merge_extra_body(base: dict[str, Any] | None, override: dict[str, Any] | None) -> dict[str, Any]:
-    """Merge two extra_body dicts, one level deep. ``override`` wins on leaf
-    conflicts; nested dicts under the same key (e.g. ``mm_processor_kwargs``) are
-    merged rather than replaced."""
-    merged: dict[str, Any] = {}
-    for source in (base, override):
-        for key, value in (source or {}).items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = {**merged[key], **value}
-            else:
-                merged[key] = value
-    return merged
-
-
 class VllmChatClient:
-    def __init__(self, model: ModelConfig, default_timeout_s: float = 600.0) -> None:
+    """Sends an adapter's neutral request; the pipeline decides how it is encoded."""
+
+    def __init__(
+        self,
+        model: ModelConfig,
+        default_timeout_s: float = 600.0,
+        *,
+        pipeline: InferencePipeline | None = None,
+    ) -> None:
         self.model = model
         self.timeout_s = model.request_timeout_s or default_timeout_s
-        # Model-level defaults (e.g. chat_template_kwargs to toggle reasoning)
-        # merged into every request's extra_body.
-        self.default_extra_body: dict[str, Any] = dict(model.extra.get("extra_body") or {})
+        self.pipeline = pipeline or InferencePipeline.build(model)
         self.client = OpenAI(
             base_url=model.resolved_base_url,
             api_key=model.api_key,
             timeout=self.timeout_s,
         )
 
+    @property
+    def frames_mode(self) -> str:
+        return self.pipeline.settings.frames
+
     def complete(
         self,
         prompt: str,
         *,
-        image_urls: list[str] | None = None,
         video_path: str | Path | None = None,
-        video_url: str | None = None,
         audio_path: str | Path | None = None,
+        frames: Callable[[], ClientFrames] | None = None,
         max_tokens: int = 8192,
         temperature: float = 0.0,
         top_p: float | None = None,
@@ -65,40 +57,33 @@ class VllmChatClient:
         system_prompt: str | None = None,
         extra_body: dict[str, Any] | None = None,
     ) -> ChatCompletionResult:
-        content: list[dict[str, Any]] = []
-        for image_url in image_urls or []:
-            content.append({"type": "image_url", "image_url": {"url": image_url}})
-        if video_path or video_url:
-            content.append(
-                {
-                    "type": "video_url",
-                    "video_url": {"url": video_url or file_url(video_path)},  # type: ignore[arg-type]
-                }
+        """``frames`` lazily yields client-sampled frames; used only when the
+        resolved frames strategy is ``client``."""
+        built = self.pipeline.build_request(
+            MediaRequest(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                video_path=video_path,
+                audio_path=audio_path,
+                frames=frames,
+                extra_body=extra_body,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=do_sample,
             )
-        if audio_path:
-            content.append({"type": "audio_url", "audio_url": {"url": file_url(audio_path)}})
-        content.append({"type": "text", "text": prompt})
-
-        messages: list[dict[str, Any]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": content})
-
+        )
         started = time.perf_counter()
-        body = merge_extra_body(self.default_extra_body, extra_body)
-        if top_p is not None:
-            body["top_p"] = top_p
-        if do_sample is not None:
-            body["do_sample"] = do_sample
         response = self.client.chat.completions.create(
             model=self.model.api_model_name,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            extra_body=body or None,
+            messages=built.messages,
+            max_tokens=built.max_tokens,
+            temperature=built.temperature,
+            extra_body=built.extra_body,
         )
         latency_s = time.perf_counter() - started
-        text = response.choices[0].message.content or ""
+        content = response.choices[0].message.content or ""
+        text, _ = self.pipeline.reasoning.split(content, None)
         usage = response.usage
         return ChatCompletionResult(
             text=text,
@@ -107,3 +92,18 @@ class VllmChatClient:
             completion_tokens=usage.completion_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,
         )
+
+
+def build_chat_client(
+    model: ModelConfig,
+    default_timeout_s: float = 600.0,
+    *,
+    benchmark: BenchmarkConfig | None = None,
+    frame_modes: tuple[str, ...] | None = None,
+) -> VllmChatClient:
+    """Client whose pipeline is resolved for this (model, benchmark) pair.
+
+    ``frame_modes`` is the adapter's supported frames modes, default first.
+    """
+    pipeline = InferencePipeline.build(model, benchmark, frame_modes=frame_modes)
+    return VllmChatClient(model, default_timeout_s=default_timeout_s, pipeline=pipeline)
